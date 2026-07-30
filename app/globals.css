@@ -1,0 +1,11 @@
+﻿:root {
+  --font-sans: "Noto Sans TC", "Noto Sans JP", "Yu Gothic UI", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-jp: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
+}
+
+* { box-sizing: border-box; }
+html { min-height: 100%; background: #f2efe7; }
+body { min-height: 100vh; margin: 0; background: #f2efe7; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
