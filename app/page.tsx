@@ -40,7 +40,14 @@ type AudioStep = {
   src: string;
 };
 type PlaybackMode = "word" | "sentence" | "both";
-const DEMO_UNIT_ID = "n4-1-1";
+
+type DemoSection = {
+  chapterNumber: number;
+  chapterTitle: string;
+  sectionNumber: number;
+  sectionTitle: string;
+  wordCount: number;
+};
 
 function renderRuby(text: string): ReactNode[] {
   const output: ReactNode[] = [];
@@ -85,6 +92,9 @@ export default function DemoPage() {
     }
   });
   const [search, setSearch] = useState("");
+  const [selectedChapter, setSelectedChapter] = useState(1);
+  const [selectedSection, setSelectedSection] = useState(1);
+  const [selectionReady, setSelectionReady] = useState(false);
   const [showMeaning, setShowMeaning] = useState(true);
   const [showExample, setShowExample] = useState(true);
   const [showExampleTranslation, setShowExampleTranslation] = useState(true);
@@ -117,6 +127,18 @@ export default function DemoPage() {
   if (!repositoryRef.current) repositoryRef.current = new LocalStorageMemoryRepository();
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const chapter = Number(params.get("chapter"));
+      const section = Number(params.get("section"));
+      if (Number.isInteger(chapter) && chapter > 0) setSelectedChapter(chapter);
+      if (Number.isInteger(section) && section > 0) setSelectedSection(section);
+      setSelectionReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     fetch("/vocabulary-n4.json")
       .then((response) => {
         if (!response.ok) throw new Error("load failed");
@@ -130,26 +152,70 @@ export default function DemoPage() {
   }, []);
 
   useEffect(() => {
-    if (!words.length || !repositoryRef.current) return;
+    if (!words.length || !selectionReady || !repositoryRef.current) return;
     const repository = repositoryRef.current;
+    const unitId = `n4-${selectedChapter}-${selectedSection}`;
     void repository.migrate().then(async () => {
-      // Read by word id so records migrated from the legacy app (unitId="legacy")
-      // remain visible in this demo unit until the user reviews them again.
-      const records = (await Promise.all(words
-        .filter((word) => word.chapterNumber === 1 && word.sectionNumber === 1)
+      const unitWords = words.filter((word) =>
+        word.chapterNumber === selectedChapter && word.sectionNumber === selectedSection,
+      );
+      const records = (await Promise.all(unitWords
         .map((word) => repository.getWordMemory(word.id))))
         .filter((record): record is WordMemoryRecord => Boolean(record));
-      const history = await repository.getReviewHistory(DEMO_UNIT_ID);
+      const history = await repository.getReviewHistory(unitId);
       setMemoryRecords(Object.fromEntries(records.map((record) => [record.wordId, record])));
       setReviewHistory(history);
     }).finally(() => setMemoryReady(true));
+  }, [selectedChapter, selectedSection, selectionReady, words]);
+
+  const sections = useMemo<DemoSection[]>(() => {
+    const map = new Map<string, DemoSection>();
+    for (const word of words) {
+      const key = `${word.chapterNumber}-${word.sectionNumber}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.wordCount += 1;
+      } else {
+        map.set(key, {
+          chapterNumber: word.chapterNumber,
+          chapterTitle: word.chapterTitle,
+          sectionNumber: word.sectionNumber,
+          sectionTitle: word.sectionTitle,
+          wordCount: 1,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) =>
+      a.chapterNumber - b.chapterNumber || a.sectionNumber - b.sectionNumber,
+    );
   }, [words]);
+
+  const selectedSectionData = sections.find((section) =>
+    section.chapterNumber === selectedChapter && section.sectionNumber === selectedSection,
+  ) ?? sections[0];
+
+  const chapterSections = useMemo(
+    () => sections.filter((section) => section.chapterNumber === selectedChapter),
+    [sections, selectedChapter],
+  );
+
+  function selectUnit(chapter: number, section: number) {
+    setSelectedChapter(chapter);
+    setSelectedSection(section);
+    setSearch("");
+    setReviewing(false);
+    setReviewWordIds([]);
+    setReviewComplete(false);
+    setMemoryReady(false);
+    stopAudio();
+    window.history.replaceState(null, "", `/?chapter=${chapter}&section=${section}`);
+  }
 
   const visibleWords = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return words.filter((word) => {
       const matchesSection =
-        word.chapterNumber === 1 && word.sectionNumber === 1;
+        word.chapterNumber === selectedChapter && word.sectionNumber === selectedSection;
       const matchesSearch =
         !query ||
         [word.word, word.reading, word.meaningZhTw, word.exampleZhTw].some(
@@ -157,7 +223,7 @@ export default function DemoPage() {
         );
       return matchesSection && matchesSearch;
     });
-  }, [search, words]);
+  }, [search, selectedChapter, selectedSection, words]);
 
   const unitStats = useMemo<UnitStats>(() => {
     const records = visibleWords.map((word) => memoryRecords[word.id]).filter(Boolean);
@@ -180,16 +246,37 @@ export default function DemoPage() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentAudio) return;
-    audio.src = currentAudio.src;
-    audio.playbackRate = audioRate;
-    audio.currentTime = 0;
-    void audio
-      .play()
-      .then(() => setIsAudioPlaying(true))
-      .catch(() => {
-        setIsAudioPlaying(false);
-        setMessage("請再按一次播放。");
-      });
+    const playableAudio = audio;
+    let cancelled = false;
+
+    function startPlayback() {
+      if (cancelled) return;
+      void playableAudio
+        .play()
+        .then(() => setIsAudioPlaying(true))
+        .catch(() => {
+          if (!cancelled) {
+            setIsAudioPlaying(false);
+            setMessage("請再按一次播放。音檔尚未準備完成。");
+          }
+        });
+    }
+
+    playableAudio.pause();
+    playableAudio.src = currentAudio.src;
+    playableAudio.playbackRate = audioRate;
+    playableAudio.currentTime = 0;
+    playableAudio.load();
+    if (playableAudio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      startPlayback();
+    } else {
+      audio.addEventListener("canplay", startPlayback, { once: true });
+    }
+
+    return () => {
+      cancelled = true;
+      audio.removeEventListener("canplay", startPlayback);
+    };
   }, [audioRate, currentAudio]);
 
   useEffect(() => {
@@ -243,7 +330,7 @@ export default function DemoPage() {
   function startReview() {
     if (!visibleWords.length) return;
     const candidates = visibleWords.map((word) =>
-      memoryRecords[word.id] ?? createWordMemory(word.id, DEMO_UNIT_ID),
+      memoryRecords[word.id] ?? createWordMemory(word.id, `n4-${selectedChapter}-${selectedSection}`),
     );
     const queued = buildReviewQueue(candidates, reviewMode);
     if (!queued.length) {
@@ -266,7 +353,7 @@ export default function DemoPage() {
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     const now = new Date();
-    const previous = memoryRecords[reviewWord.id] ?? createWordMemory(reviewWord.id, DEMO_UNIT_ID, now);
+    const previous = memoryRecords[reviewWord.id] ?? createWordMemory(reviewWord.id, `n4-${selectedChapter}-${selectedSection}`, now);
     const result = reviewWordMemory(previous, rawRating, reviewHintLevel, now);
     try {
       await repositoryRef.current.saveWordMemory(result.memory);
@@ -332,7 +419,7 @@ export default function DemoPage() {
             );
     });
     const steps = baseSteps.flatMap((step) =>
-      Array.from({ length: repeatCount }, () => step),
+      Array.from({ length: repeatCount }, () => ({ ...step })),
     );
     if (!steps.length) return;
     setMessage("");
@@ -391,6 +478,10 @@ export default function DemoPage() {
         className={styles.audioElement}
         onEnded={handleAudioEnded}
         onPause={() => setIsAudioPlaying(false)}
+        onError={() => {
+          setIsAudioPlaying(false);
+          setMessage("音檔載入失敗，請確認音檔路徑。");
+        }}
       />
 
       <header className={styles.topbar}>
@@ -401,19 +492,53 @@ export default function DemoPage() {
             <small>Audio Vocabulary</small>
           </span>
         </Link>
-        <span className={styles.demoBadge}>N4 LEARNING DEMO</span>
+        <span className={styles.demoBadge}>INDEPENDENT DEMO</span>
       </header>
 
       <section className={styles.workspace}>
         <header className={styles.sectionHeader}>
           <div>
             <p className={styles.eyebrow}>
-              N4・第 1 章・私たちの毎日
+              N4・第 {selectedSectionData?.chapterNumber} 章・{selectedSectionData?.chapterTitle}
             </p>
-            <h1>時間</h1>
+            <h1>{selectedSectionData?.sectionTitle}</h1>
           </div>
           <span className={styles.wordCount}>{visibleWords.length} WORDS</span>
         </header>
+
+        <div className={styles.unitPicker} aria-label="選擇章節與單字庫">
+          <label>
+            <span>章節</span>
+            <select
+              value={selectedChapter}
+              onChange={(event) => {
+                const chapter = Number(event.target.value);
+                const firstSection = sections.find((section) => section.chapterNumber === chapter);
+                if (firstSection) selectUnit(chapter, firstSection.sectionNumber);
+              }}
+            >
+              {[...new Set(sections.map((section) => section.chapterNumber))].map((chapter) => {
+                const chapterData = sections.find((section) => section.chapterNumber === chapter);
+                return <option key={chapter} value={chapter}>第 {chapter} 章・{chapterData?.chapterTitle}</option>;
+              })}
+            </select>
+          </label>
+          <label>
+            <span>單字庫</span>
+            <select
+              value={selectedSection}
+              onChange={(event) => selectUnit(selectedChapter, Number(event.target.value))}
+            >
+              {chapterSections.map((section) => (
+                <option key={section.sectionNumber} value={section.sectionNumber}>
+                  {String(section.sectionNumber).padStart(2, "0")}・{section.sectionTitle}（{section.wordCount} 詞）
+                </option>
+              ))}
+            </select>
+          </label>
+          <Link className={styles.unitMapLink} href="/units">查看全部章節 →</Link>
+          <Link className={styles.unitMapLink} href="/favorites">收藏清單</Link>
+        </div>
 
         {unitStats && (
           <div className={styles.masterySummary} aria-label="單元學習統計">
