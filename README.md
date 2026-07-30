@@ -20,7 +20,8 @@ npm run dev
 ## 驗證
 
 ```bash
-npm run lint
-npm test
-npm run build
+npm run check
+npm run verify
 ```
+
+專案規則放在 `AGENTS.md`，目前工作範圍放在 `TASK.md`。

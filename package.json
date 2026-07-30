@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
-    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs"
+    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs",
+    "check": "npm run lint && npm test",
+    "verify": "npm run check && npm run build"
   },
   "dependencies": {
     "next": "^16.2.12",
