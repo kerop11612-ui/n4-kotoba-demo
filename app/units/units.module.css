@@ -1,0 +1,55 @@
+:root {
+  --canvas: #f2efe7;
+  --surface: #fffdf8;
+  --raised: #f7f1e8;
+  --ink: #17212b;
+  --muted: #655e55;
+  --accent: #b85e24;
+  --line: #d9d0c4;
+  --line-soft: #e8e0d6;
+}
+.page { min-height: 100vh; background: var(--canvas); color: var(--ink); padding: 28px clamp(18px, 5vw, 72px) 64px; }
+.topbar, .controls, .chapterHeader, .current, .sectionButton { display: flex; align-items: center; }
+.topbar { justify-content: space-between; max-width: 1180px; margin: 0 auto; }
+.backLink { color: var(--muted); text-decoration: none; font-size: 14px; }
+.backLink:hover { color: var(--accent); }
+.badge, .eyebrow, .chapterNumber, .sectionNumber { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.badge { border: 1px solid #e1c4ae; border-radius: 999px; padding: 7px 10px; }
+.hero, .controls, .chapterList { max-width: 1180px; margin-left: auto; margin-right: auto; }
+.hero { padding: 64px 0 28px; }
+.hero h1 { margin: 8px 0; font-size: clamp(34px, 5vw, 58px); letter-spacing: -.03em; }
+.hero p { margin: 0; color: var(--muted); }
+.controls { gap: 10px; margin-bottom: 24px; }
+.search { display: grid; gap: 5px; flex: 1; color: var(--muted); font-size: 11px; font-weight: 700; }
+.search input { min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 0 13px; background: var(--surface); color: var(--ink); font: inherit; }
+.current { flex-direction: column; align-items: flex-start; min-width: 92px; gap: 2px; color: var(--muted); font-size: 11px; }
+.current strong { color: var(--ink); font-size: 20px; }
+.controls > button { min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 0 14px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; }
+.controls > button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.controls > button:disabled { cursor: not-allowed; opacity: .4; }
+.chapterList { display: grid; gap: 12px; }
+.chapter { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.chapterActive { border-color: #d7a98b; box-shadow: 0 8px 22px rgb(87 65 47 / 8%); }
+.chapterHeader { width: 100%; gap: 16px; min-height: 74px; border: 0; padding: 0 20px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.chapterHeader:hover { background: var(--raised); }
+.chapterNumber { min-width: 34px; font-size: 19px; }
+.chapterTitle { font-size: 20px; font-weight: 800; }
+.chapterMeta { margin-left: auto; color: var(--muted); font-size: 13px; }
+.chevron { width: 22px; color: var(--muted); text-align: center; }
+.sectionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px dashed var(--line); }
+.sectionButton { display: grid; align-content: center; justify-items: start; gap: 7px; min-height: 118px; border: 0; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); padding: 18px 20px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.sectionButton:nth-child(even) { border-right: 0; }
+.sectionButton:hover, .sectionSelected { background: var(--raised); }
+.sectionSelected { box-shadow: inset 4px 0 0 var(--accent); }
+.sectionButton strong { font-size: 17px; }
+.sectionButton small { color: var(--muted); font-size: 12px; }
+@media (max-width: 700px) {
+  .page { padding: 18px 14px 40px; }
+  .hero { padding-top: 48px; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; }
+  .search { grid-column: 1 / -1; }
+  .current { grid-column: 1 / -1; grid-row: auto; }
+  .sectionGrid { grid-template-columns: 1fr; }
+  .sectionButton, .sectionButton:nth-child(even) { border-right: 0; }
+  .chapterHeader { padding: 0 14px; }
+}
