@@ -1,8 +1,9 @@
+import { useState } from "react";
 import styles from "../demo.module.css";
 import { calculateMasterySnapshot, getMasteryLabel } from "../../src/spaced-repetition/mastery";
 import type { MasterySnapshot } from "../../src/spaced-repetition/mastery";
 import type { WordMemoryRecord } from "../../src/spaced-repetition/types";
-import { AudioIcon, type AudioStep, renderRuby, type DemoWord } from "./vocabulary";
+import { AudioIcon, StarIcon, type AudioStep, renderRuby, type DemoWord } from "./vocabulary";
 
 type WordCardProps = {
   word: DemoWord;
@@ -11,6 +12,7 @@ type WordCardProps = {
   currentAudioId?: string;
   isPlaylist: boolean;
   showMeaning: boolean;
+  showReading: boolean;
   showExample: boolean;
   showExampleTranslation: boolean;
   blurTranslations: boolean;
@@ -29,6 +31,7 @@ export function WordCard({
   currentAudioId,
   isPlaylist,
   showMeaning,
+  showReading,
   showExample,
   showExampleTranslation,
   blurTranslations,
@@ -45,27 +48,31 @@ export function WordCard({
   const wordStepId = `${word.id}-word`;
   const sentenceStepId = `${word.id}-sentence`;
   const isExampleLong = word.example.length > 28 || word.exampleZhTw.length > 22;
+  const [translationRevealed, setTranslationRevealed] = useState(false);
+  const translationHidden = blurTranslations && !translationRevealed;
+  const translationClassName = translationHidden ? styles.translationHidden : "";
 
   return (
     <article
-      className={`${styles.card} ${currentAudioId?.startsWith(`${word.id}-`) ? styles.activeCard : ""}`}
-      tabIndex={blurTranslations ? 0 : undefined}
+      className={`${styles.card} ${!showReading ? styles.cardWithoutReading : ""} ${currentAudioId?.startsWith(`${word.id}-`) ? styles.activeCard : ""}`}
     >
       <div className={styles.cardHeading}>
-        <button
-          className={styles.wordPlayButton}
-          type="button"
-          disabled={!word.wordAudio}
-          aria-label={`播放 ${word.word} 的單字音檔`}
-          title={`播放 ${word.word}`}
-          data-playing={currentAudioId === wordStepId}
-          onClick={() => isPlaylist
-            ? onPlayVisible(wordIndex)
-            : onPlayOne({ id: wordStepId, label: `${word.word}・單字`, src: word.wordAudio })}
-        >
-          <h2 lang="ja">{word.word}</h2>
-        </button>
-        <span className={styles.reading} lang="ja">{word.reading}</span>
+        <h2 className={styles.wordHeading} lang="ja">
+          <button
+            className={styles.wordPlayButton}
+            type="button"
+            disabled={!word.wordAudio}
+            aria-label={`播放 ${word.word} 的單字音檔`}
+            title={`播放 ${word.word}`}
+            data-playing={currentAudioId === wordStepId}
+            onClick={() => isPlaylist
+              ? onPlayVisible(wordIndex)
+              : onPlayOne({ id: wordStepId, label: `${word.word}・單字`, src: word.wordAudio })}
+          >
+            <span className={styles.wordPlayLabel}>{word.word}</span>
+          </button>
+        </h2>
+        {showReading && <span className={styles.reading} lang="ja">{word.reading}</span>}
         <span className={styles.partOfSpeech}>{word.partOfSpeech}</span>
         <button
           className={styles.favoriteButton}
@@ -75,14 +82,24 @@ export function WordCard({
           title={isFavorite ? "取消收藏" : "加入收藏"}
           onClick={onToggleFavorite}
         >
-          {isFavorite ? "★" : "☆"}
+          <StarIcon filled={isFavorite} />
         </button>
       </div>
 
       {showMeaning ? (
         <div className={styles.meaningRow}>
-          <p className={styles.meaning}>{word.meaningZhTw}</p>
+          <p className={`${styles.meaning} ${translationClassName}`} aria-hidden={translationHidden}>{word.meaningZhTw}</p>
           <div className={styles.meaningMeta}>
+            {blurTranslations && (
+              <button
+                className={styles.translationReveal}
+                type="button"
+                aria-pressed={!translationHidden}
+                onClick={() => setTranslationRevealed((revealed) => !revealed)}
+              >
+                {translationHidden ? "顯示答案" : "隱藏答案"}
+              </button>
+            )}
             <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
               30天保持率 {masteryText}
             </span>
@@ -102,7 +119,11 @@ export function WordCard({
         <div className={`${styles.exampleBlock} ${isExampleExpanded ? styles.exampleExpanded : ""}`}>
           <div className={styles.exampleCopy}>
             <p className={styles.exampleJapanese} lang="ja">{renderRuby(word.example)}</p>
-            {showExampleTranslation && <p className={styles.exampleTranslation}>{word.exampleZhTw}</p>}
+            {showExampleTranslation && (
+              <p className={`${styles.exampleTranslation} ${translationClassName}`} aria-hidden={translationHidden}>
+                {word.exampleZhTw}
+              </p>
+            )}
           </div>
           <div className={styles.exampleActions}>
             {isExampleLong && (

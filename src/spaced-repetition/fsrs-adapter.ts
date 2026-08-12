@@ -33,6 +33,9 @@ export function serializeCard(card: Card): SerializedFsrsCard {
 }
 
 export function deserializeCard(card: SerializedFsrsCard): Card {
+  if (!isSerializedCard(card)) {
+    throw new Error("FSRS 卡片資料無效");
+  }
   return {
     ...card,
     due: new Date(card.due),
@@ -84,7 +87,7 @@ export function reviewWordMemory(
     : 0;
   const skill = reviewContext?.skill ?? memory.skill ?? "jp_to_meaning";
   const reviewedAt = now.toISOString();
-  const eventId = `${memory.wordId}:${skill}-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+  const eventId = `${memory.wordId}:${skill}:${memory.reviewCount + 1}:${memory.updatedAt}`;
   const errorTypes = reviewContext?.errorTypes ? [...new Set(reviewContext.errorTypes)] : [];
   const nextMemory: WordMemoryRecord = {
     ...memory,
@@ -153,13 +156,26 @@ function safeRetrievability(card: Card, now: Date): number {
 }
 
 export function isSerializedCard(value: unknown): value is SerializedFsrsCard {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Partial<SerializedFsrsCard>;
   return (
     typeof candidate.due === "string" && Number.isFinite(Date.parse(candidate.due)) &&
-    typeof candidate.stability === "number" && Number.isFinite(candidate.stability) &&
-    typeof candidate.difficulty === "number" && Number.isFinite(candidate.difficulty) &&
-    typeof candidate.state === "number" && Number.isFinite(candidate.state) &&
+    isNonNegativeFinite(candidate.stability) &&
+    isNonNegativeFinite(candidate.difficulty) && candidate.difficulty <= 10 &&
+    isNonNegativeInteger(candidate.elapsed_days) &&
+    isNonNegativeInteger(candidate.scheduled_days) &&
+    isNonNegativeInteger(candidate.reps) &&
+    isNonNegativeInteger(candidate.lapses) &&
+    isNonNegativeInteger(candidate.learning_steps) &&
+    isNonNegativeInteger(candidate.state) && candidate.state <= 3 &&
     (candidate.last_review === undefined || (typeof candidate.last_review === "string" && Number.isFinite(Date.parse(candidate.last_review))))
   );
+}
+
+function isNonNegativeFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isNonNegativeFinite(value) && Number.isInteger(value);
 }

@@ -1,6 +1,8 @@
 import styles from "../demo.module.css";
 import { createClozeSentence } from "../../src/spaced-repetition/cloze";
 import type { HintLevel, ReviewFormat, ReviewRating } from "../../src/spaced-repetition/types";
+import { estimateReviewMinutes } from "../../src/spaced-repetition/study-session";
+import type { ReviewSessionSummary } from "../hooks/useReviewSession";
 import { AudioIcon, renderRuby, type AudioStep, type DemoWord } from "./vocabulary";
 import { ReviewRatingButtons } from "./ReviewRatingButtons";
 
@@ -15,6 +17,7 @@ type ReviewPanelProps = {
   clozeAnswerAttempts: number;
   clozeAnswerCorrect: boolean | null;
   isSubmitting: boolean;
+  reviewSummary: ReviewSessionSummary;
   showMeaning: boolean;
   showExample: boolean;
   showExampleTranslation: boolean;
@@ -38,6 +41,7 @@ export function ReviewPanel({
   clozeAnswerAttempts,
   clozeAnswerCorrect,
   isSubmitting,
+  reviewSummary,
   showMeaning,
   showExample,
   showExampleTranslation,
@@ -58,6 +62,19 @@ export function ReviewPanel({
   const answerVisible = isCloze
     ? clozeFinished
     : reviewRevealed || (reviewFormat === "zh-to-jp" ? reviewHintLevel === 4 : reviewHintLevel === 3);
+  const remainingItems = reviewComplete ? 0 : Math.max(0, reviewWords.length - reviewIndex);
+  const estimatedMinutes = estimateReviewMinutes(remainingItems);
+  const completionRate = reviewSummary.completed
+    ? Math.round((reviewSummary.correct / reviewSummary.completed) * 100)
+    : 0;
+  const nextReviewLabel = reviewSummary.nextReviewAt
+    ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(reviewSummary.nextReviewAt))
+    : "待安排";
+  const progressPercent = reviewComplete
+    ? 100
+    : reviewWords.length
+      ? Math.min(100, Math.round(((reviewIndex + 1) / reviewWords.length) * 100))
+      : 0;
   const hintLabel = reviewHintLevel === 0 ? "例句提示" : reviewHintLevel === 1 ? "顯示完整例句" : "顯示答案";
   const firstReading = Array.from(reviewWord.reading)[0] ?? Array.from(reviewWord.word)[0] ?? "";
   const wordLength = Array.from(reviewWord.word).length;
@@ -83,19 +100,48 @@ export function ReviewPanel({
       className={styles.reviewCard}
       aria-label={reviewFormat === "jp-to-zh" ? "日文到中文複習" : reviewFormat === "zh-to-jp" ? "中文到日文複習" : "例句填空複習"}
     >
+      <div className={styles.reviewSessionBar}>
+        <button className={styles.reviewExitButton} type="button" onClick={onStopReview}>
+          <span aria-hidden="true">←</span> 結束
+        </button>
+        <div className={styles.reviewProgressSummary}>
+          <div>
+            <span>{reviewFormat === "jp-to-zh" ? "日文 → 中文" : reviewFormat === "zh-to-jp" ? "中文 → 日文" : "例句填空"}</span>
+            <strong>{reviewIndex + 1} / {reviewWords.length}</strong>
+          </div>
+          <span
+            className={styles.reviewProgressTrack}
+            role="progressbar"
+            aria-label="本輪複習進度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPercent}
+          >
+            <i style={{ width: `${progressPercent}%` }} />
+          </span>
+        </div>
+        <span className={styles.reviewEstimate}>約剩 {estimatedMinutes} 分鐘</span>
+      </div>
       {reviewComplete || reviewIndex >= reviewWords.length ? (
         <div className={styles.reviewComplete}>
           <strong>本輪複習完成</strong>
           <span>已完成 {reviewWords.length} 個單字</span>
+          <div className={styles.reviewCompleteStats} aria-label="本輪複習摘要">
+            <div><span>答對率</span><strong>{completionRate}%</strong></div>
+            <div><span>使用提示</span><strong>{reviewSummary.hinted} 題</strong></div>
+            <div><span>需要再看</span><strong>{reviewSummary.retryWordIds.length} 題</strong></div>
+            <div><span>下次複習</span><strong>{nextReviewLabel}</strong></div>
+          </div>
+          <p className={styles.reviewCompleteNote}>
+            {reviewSummary.retryWordIds.length
+              ? "有些單字使用了提示或選了再來一次，稍後再看一次會更穩固。"
+              : "這輪回想很穩定，保持每天短時間複習。"}
+          </p>
           <button type="button" onClick={onStopReview}>回到單字列表</button>
         </div>
       ) : (
         <>
-          <div className={styles.reviewMeta}>
-            <span>{reviewFormat === "jp-to-zh" ? "日文 → 中文" : reviewFormat === "zh-to-jp" ? "中文 → 日文" : "例句填空"}</span>
-            <span>{reviewIndex + 1} / {reviewWords.length}</span>
-          </div>
-          <div className={styles.reviewPrompt}>
+          <div className={styles.reviewPrompt} aria-live="polite" aria-atomic="true">
             {reviewFormat === "jp-to-zh" && japaneseWord}
             {reviewFormat === "zh-to-jp" && (
               <div className={styles.reviewPromptMeaning}>
@@ -243,6 +289,11 @@ export function ReviewPanel({
               <ReviewRatingButtons disabled={isSubmitting} onRate={onRate} />
             </div>
           )}
+          <div className={styles.reviewShortcutGuide} aria-label="鍵盤快捷鍵">
+            {!answerVisible && !isCloze && <span><kbd>Space</kbd> 顯示答案</span>}
+            {!answerVisible && reviewFormat === "jp-to-zh" && <span><kbd>H</kbd> 顯示提示</span>}
+            {answerVisible && <span><kbd>1–4</kbd> 快速評分</span>}
+          </div>
         </>
       )}
     </section>

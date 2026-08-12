@@ -1,66 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./units.module.css";
-
-type VocabularyItem = {
-  chapterNumber: number;
-  chapterTitle: string;
-  sectionNumber: number;
-  sectionTitle: string;
-};
-
-type SectionView = {
-  number: number;
-  title: string;
-  words: number;
-};
-
-type ChapterView = {
-  number: number;
-  title: string;
-  words: number;
-  sections: SectionView[];
-};
+import { AppNav } from "../components/AppNav";
+import { buildVocabularyChapters } from "../../src/vocabulary/catalog";
+import { useVocabularyIndex } from "../hooks/useVocabularyIndex";
 
 export default function UnitsDemoPage() {
-  const [words, setWords] = useState<VocabularyItem[]>([]);
+  const { items, totalWords, loading, error } = useVocabularyIndex();
   const [activeChapter, setActiveChapter] = useState(1);
   const [activeSection, setActiveSection] = useState(1);
   const [query, setQuery] = useState("");
-  const [message, setMessage] = useState("正在載入 N4 章節…");
+  const message = error || (loading ? "正在載入 N4 章節…" : "");
 
-  useEffect(() => {
-    fetch("/vocabulary-n4.json")
-      .then((response) => {
-        if (!response.ok) throw new Error("load failed");
-        return response.json() as Promise<VocabularyItem[]>;
-      })
-      .then((items) => {
-        setWords(items);
-        setMessage("");
-      })
-      .catch(() => setMessage("資料載入失敗，請重新整理頁面。"));
-  }, []);
-
-  const chapters = useMemo<ChapterView[]>(() => {
-    const chapterMap = new Map<number, ChapterView>();
-    for (const word of words) {
-      let chapter = chapterMap.get(word.chapterNumber);
-      if (!chapter) {
-        chapter = { number: word.chapterNumber, title: word.chapterTitle, words: 0, sections: [] };
-        chapterMap.set(word.chapterNumber, chapter);
-      }
-      chapter.words += 1;
-      const section = chapter.sections.find((item) => item.number === word.sectionNumber);
-      if (section) section.words += 1;
-      else chapter.sections.push({ number: word.sectionNumber, title: word.sectionTitle, words: 1 });
-    }
-    return [...chapterMap.values()]
-      .map((chapter) => ({ ...chapter, sections: chapter.sections.sort((a, b) => a.number - b.number) }))
-      .sort((a, b) => a.number - b.number);
-  }, [words]);
+  const chapters = useMemo(() => buildVocabularyChapters(items), [items]);
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleChapters = useMemo(() => {
@@ -69,14 +23,14 @@ export default function UnitsDemoPage() {
       String(chapter.number).includes(normalizedQuery) ||
       chapter.title.toLocaleLowerCase().includes(normalizedQuery) ||
       chapter.sections.some((section) =>
-        section.title.toLocaleLowerCase().includes(normalizedQuery) ||
-        `${chapter.number}-${section.number}`.includes(normalizedQuery),
+        section.sectionTitle.toLocaleLowerCase().includes(normalizedQuery) ||
+        `${chapter.number}-${section.sectionNumber}`.includes(normalizedQuery),
       ),
     );
   }, [chapters, normalizedQuery]);
 
   const orderedUnits = useMemo(
-    () => chapters.flatMap((chapter) => chapter.sections.map((section) => ({ chapter: chapter.number, section: section.number }))),
+    () => chapters.flatMap((chapter) => chapter.sections.map((section) => ({ chapter: chapter.number, section: section.sectionNumber }))),
     [chapters],
   );
   const activeUnitIndex = orderedUnits.findIndex(
@@ -93,12 +47,11 @@ export default function UnitsDemoPage() {
     if (next) selectSection(next.chapter, next.section);
   }
 
-  if (!words.length) {
+  if (!items.length) {
     return (
       <main className={styles.page}>
         <header className={styles.topbar}>
-          <Link className={styles.backLink} href="/">← 回到單字 Demo</Link>
-          <span className={styles.badge}>N4 VOCABULARY</span>
+          <AppNav active="library" />
         </header>
         <div className={styles.emptyState}>{message}</div>
       </main>
@@ -108,14 +61,13 @@ export default function UnitsDemoPage() {
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
-        <Link className={styles.backLink} href="/">← 回到單字 Demo</Link>
-        <span className={styles.badge}>N4 VOCABULARY</span>
+        <AppNav active="library" />
       </header>
 
       <section className={styles.hero}>
         <p className={styles.eyebrow}>N4 單字庫</p>
         <h1>章節與單字庫</h1>
-        <p>依教材章節整理 {words.length} 個單字，選擇單元後直接開啟學習卡片。</p>
+        <p>依教材章節整理 {totalWords} 個單字，選擇單元後直接開啟學習卡片。</p>
       </section>
 
       <nav className={styles.controls} aria-label="單字庫導覽控制">
@@ -136,7 +88,7 @@ export default function UnitsDemoPage() {
           const isOpen = activeChapter === chapter.number;
           return (
             <article className={isOpen ? `${styles.chapter} ${styles.chapterActive}` : styles.chapter} key={chapter.number}>
-              <button className={styles.chapterHeader} type="button" aria-expanded={isOpen} onClick={() => selectSection(chapter.number, chapter.sections[0]?.number ?? 1)}>
+              <button className={styles.chapterHeader} type="button" aria-expanded={isOpen} onClick={() => selectSection(chapter.number, chapter.sections[0]?.sectionNumber ?? 1)}>
                 <span className={styles.chapterNumber}>{String(chapter.number).padStart(2, "0")}</span>
                 <span className={styles.chapterTitle}>第 {chapter.number} 章・{chapter.title}</span>
                 <span className={styles.chapterMeta}>{chapter.sections.length} 節・{chapter.words} 詞</span>
@@ -145,18 +97,18 @@ export default function UnitsDemoPage() {
               {isOpen && (
                 <div className={styles.sectionGrid}>
                   {chapter.sections.map((section) => {
-                    const selected = activeSection === section.number;
+                    const selected = activeSection === section.sectionNumber;
                     return (
                       <Link
                         className={selected ? `${styles.sectionButton} ${styles.sectionSelected}` : styles.sectionButton}
-                        href={`/?chapter=${chapter.number}&section=${section.number}`}
-                        key={section.number}
+                        href={`/?chapter=${chapter.number}&section=${section.sectionNumber}`}
+                        key={section.sectionNumber}
                         aria-current={selected ? "page" : undefined}
-                        onClick={() => selectSection(chapter.number, section.number)}
+                        onClick={() => selectSection(chapter.number, section.sectionNumber)}
                       >
-                        <span className={styles.sectionNumber}>節 {String(section.number).padStart(2, "0")}</span>
-                        <strong>{section.title}</strong>
-                        <small>{section.words} 個單字・開啟單字庫 →</small>
+                        <span className={styles.sectionNumber}>節 {String(section.sectionNumber).padStart(2, "0")}</span>
+                        <strong>{section.sectionTitle}</strong>
+                        <small>{section.wordCount} 個單字・開啟單字庫 →</small>
                       </Link>
                     );
                   })}

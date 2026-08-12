@@ -13,6 +13,13 @@ import { getMemoryKey } from "../spaced-repetition/types.ts";
 
 export const MEMORY_SCHEMA_VERSION = 2;
 
+export class UnsupportedMemorySchemaError extends Error {
+  constructor(version: unknown) {
+    super(`不支援的學習資料版本: ${String(version)}`);
+    this.name = "UnsupportedMemorySchemaError";
+  }
+}
+
 export function emptyMemoryData(): MemoryRepositoryData {
   return { schemaVersion: MEMORY_SCHEMA_VERSION, memories: {}, history: [], events: [] };
 }
@@ -51,6 +58,9 @@ export function migrateWordMemoryRecord(
 }
 
 export function migrateMemoryData(value: unknown, now = new Date()): MemoryRepositoryData {
+  if (isRecord(value) && "schemaVersion" in value && value.schemaVersion !== 1 && value.schemaVersion !== MEMORY_SCHEMA_VERSION) {
+    throw new UnsupportedMemorySchemaError(value.schemaVersion);
+  }
   if (isRecord(value) && (value.schemaVersion === 1 || value.schemaVersion === MEMORY_SCHEMA_VERSION)) {
     const memories: Record<string, WordMemoryRecord> = {};
     if (isRecord(value.memories)) {
@@ -115,7 +125,9 @@ function migrateHistoryRecord(input: unknown): ReviewHistoryRecord | null {
     reviewFormat: isReviewFormat(input.reviewFormat) ? input.reviewFormat : undefined,
     responseTimeMs: finiteNonNegativeOrUndefined(input.responseTimeMs),
     correct: typeof input.correct === "boolean" ? input.correct : undefined,
-    recalledWithoutHint: typeof input.recalledWithoutHint === "boolean" ? input.recalledWithoutHint : undefined,
+    recalledWithoutHint: typeof input.recalledWithoutHint === "boolean"
+      ? input.recalledWithoutHint
+      : input.correct === true && input.hintLevel === 0,
     errorTypes: Array.isArray(input.errorTypes) ? input.errorTypes.filter(isReviewErrorType) : [],
     confusedWordIds: Array.isArray(input.confusedWordIds) ? input.confusedWordIds.filter((item): item is string => typeof item === "string").slice(0, 3) : [],
   } as ReviewHistoryRecord;
@@ -132,7 +144,9 @@ function migrateReviewEvent(input: unknown): VocabularyReviewEvent | null {
     skill: input.skill,
     reviewedAt: input.reviewedAt,
     correct: input.correct === true,
-    recalledWithoutHint: input.recalledWithoutHint === true,
+    recalledWithoutHint: typeof input.recalledWithoutHint === "boolean"
+      ? input.recalledWithoutHint
+      : input.correct === true && input.hintLevel === 0,
     hintLevel: input.hintLevel,
     responseMs: finiteNonNegative(input.responseMs),
     errorTypes: Array.isArray(input.errorTypes) ? input.errorTypes.filter(isReviewErrorType) : [],

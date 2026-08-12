@@ -33,6 +33,9 @@ export interface WeakLearningItem {
   independentAccuracy: number;
   hintRate: number;
   averageResponseMs: number;
+  periodReviewCount: number;
+  lifetimeReviewCount: number;
+  /** @deprecated Use periodReviewCount for evidence and lifetimeReviewCount for display. */
   reviewCount: number;
   lapseCount: number;
   confusedWordIds: string[];
@@ -82,10 +85,13 @@ export interface LearningAnalysisAgentPolicy {
 
 export const AI_AGENT_POLICY: LearningAnalysisAgentPolicy = {
   minimumReviews: 3,
-  maxWeakItems: 8,
+  maxWeakItems: 5,
   maxConfusedWordIds: 3,
   maxErrorTypes: 3,
 };
+
+const MAX_AI_RESPONSE_CHARS = 50_000;
+const MAX_ANALYSIS_TEXT_LENGTH = 120;
 
 export const ANALYSIS_THRESHOLDS: AnalysisThresholds = {
   weakRetention: 0.5,
@@ -129,8 +135,8 @@ export const AI_LEARNING_SYSTEM_PROMPT = `你是日文單字學習分析 Agent�
 2. 根據資料做出的推論
 3. 建議採取的行動
 
-最多回傳 5 個 findings。
-最多回傳 3 個 recommendedActions。
+最多回傳 3 個 findings。
+最多回傳 1 個 recommendedAction。
 只回傳符合 schema 的 JSON。`;
 
 export const LEARNING_ANALYSIS_SCHEMA = {
@@ -141,7 +147,7 @@ export const LEARNING_ANALYSIS_SCHEMA = {
     overallStatus: { type: "string", enum: ["good", "warning", "overloaded"] },
     findings: {
       type: "array",
-      maxItems: 5,
+      maxItems: 3,
       items: {
         type: "object",
         additionalProperties: false,
@@ -157,7 +163,7 @@ export const LEARNING_ANALYSIS_SCHEMA = {
     },
     recommendedActions: {
       type: "array",
-      maxItems: 3,
+      maxItems: 1,
       items: {
         type: "object",
         additionalProperties: false,
@@ -212,15 +218,16 @@ export function aggregateLearningAnalysis(
     const skill = memory?.skill ?? eventsForMemory[0]?.skill ?? "jp_to_meaning";
     const vocabularyItem = vocabularyById.get(wordId);
     const snapshot = calculateMasterySnapshot(memory, now, 30);
-    const reviewCount = memory?.reviewCount ?? eventsForMemory.length;
+    const periodReviewCount = eventsForMemory.length;
+    const lifetimeReviewCount = memory?.reviewCount ?? periodReviewCount;
     const independentEvents = eventsForMemory.filter((event) => event.recalledWithoutHint);
     const independentCorrect = independentEvents.filter((event) => event.correct).length;
     const independentAccuracy = independentEvents.length
       ? independentCorrect / independentEvents.length
-      : reviewCount > 0 ? snapshot.independentRecallRatePercent / 100 : 0;
+      : lifetimeReviewCount > 0 ? snapshot.independentRecallRatePercent / 100 : 0;
     const hintRate = eventsForMemory.length
       ? eventsForMemory.filter((event) => event.hintLevel > 0).length / eventsForMemory.length
-      : reviewCount > 0 ? snapshot.hintDependencyPercent / 100 : 0;
+      : lifetimeReviewCount > 0 ? snapshot.hintDependencyPercent / 100 : 0;
     const responseTimes = eventsForMemory.map((event) => event.responseMs).filter(isValidDuration);
     const confusedWordIds = [...new Set(eventsForMemory.flatMap((event) => event.confusedWordIds ?? []))].sort().slice(0, 3);
     const errorTypes = [...new Set(eventsForMemory.flatMap((event) => event.errorTypes))].slice(0, 3);
@@ -234,12 +241,14 @@ export function aggregateLearningAnalysis(
       independentAccuracy: clamp(independentAccuracy, 0, 1),
       hintRate: clamp(hintRate, 0, 1),
       averageResponseMs: responseTimes.length ? average(responseTimes) : 0,
-      reviewCount,
+      periodReviewCount,
+      lifetimeReviewCount,
+      reviewCount: periodReviewCount,
       lapseCount: memory?.lapseCount ?? 0,
       confusedWordIds,
       errorTypes,
     };
-  }).filter((item) => item.reviewCount > 0 || eventsByMemory.has(getMemoryKey(item.wordId, item.skill)))
+  }).filter((item) => item.periodReviewCount > 0 || eventsByMemory.has(getMemoryKey(item.wordId, item.skill)))
     .sort(compareWeakItems)
     .slice(0, 20);
   const validResponseTimes = inPeriod.map((event) => event.responseMs).filter(isValidDuration);
@@ -264,10 +273,20 @@ export function aggregateLearningAnalysis(
   };
 }
 
+export interface LearningAnalysisContextVersions {
+  promptVersion: string;
+  schemaVersion: string;
+  thresholdVersion: string;
+  analysisDay: string;
+  efficiencyPolicyVersion: string;
+  model: string;
+}
+
 export interface LearningAnalysisAgentContext {
   input: LearningAnalysisInput;
   baseline: LearningAnalysis;
   cacheKey: string;
+  versions: LearningAnalysisContextVersions;
   shouldCallAi: boolean;
 }
 
@@ -277,22 +296,23 @@ export function detectLearningSignals(
 ): LearningSignal[] {
   const signals: LearningSignal[] = [];
   for (const item of input.weakItems) {
-    if (item.retention30d < thresholds.weakRetention && item.reviewCount >= thresholds.minimumEvidenceReviews) {
+    const periodReviewCount = getPeriodReviewCount(item);
+    if (item.retention30d < thresholds.weakRetention && periodReviewCount >= thresholds.minimumEvidenceReviews) {
       signals.push({
         type: "weak_retention",
         wordIds: [item.wordId],
         reason: "30 天保持率偏低",
-        evidence: [`30 天保持率 ${percent(item.retention30d)}`, `複習 ${item.reviewCount} 次`],
-        confidence: confidence(item.reviewCount, thresholds.minimumEvidenceReviews),
+        evidence: [`30 天保持率 ${percent(item.retention30d)}`, `近 3 天複習 ${periodReviewCount} 次`],
+        confidence: confidence(periodReviewCount, thresholds.minimumEvidenceReviews),
       });
     }
-    if (item.hintRate >= thresholds.hintDependency && item.reviewCount >= thresholds.minimumEvidenceReviews) {
+    if (item.hintRate >= thresholds.hintDependency && periodReviewCount >= thresholds.minimumEvidenceReviews) {
       signals.push({
         type: "hint_dependency",
         wordIds: [item.wordId],
         reason: "提示依賴偏高",
-        evidence: [`提示後答對率 ${percent(item.hintRate)}`, `複習 ${item.reviewCount} 次`],
-        confidence: confidence(item.reviewCount, thresholds.minimumEvidenceReviews),
+        evidence: [`提示後答對率 ${percent(item.hintRate)}`, `近 3 天複習 ${periodReviewCount} 次`],
+        confidence: confidence(periodReviewCount, thresholds.minimumEvidenceReviews),
       });
     }
     if (item.averageResponseMs >= thresholds.slowRecallMs && item.independentAccuracy >= 0.6) {
@@ -313,12 +333,12 @@ export function detectLearningSignals(
         confidence: 0.8,
       });
     }
-    if (item.reviewCount < thresholds.minimumEvidenceReviews) {
+    if (periodReviewCount < thresholds.minimumEvidenceReviews) {
       signals.push({
         type: "insufficient_evidence",
         wordIds: [item.wordId],
         reason: "複習證據不足",
-        evidence: [`目前僅複習 ${item.reviewCount} 次`],
+        evidence: [`近 3 天僅複習 ${periodReviewCount} 次`],
         confidence: 1,
       });
     }
@@ -340,12 +360,12 @@ export function buildDeterministicLearningAnalysis(
   thresholds: AnalysisThresholds = ANALYSIS_THRESHOLDS,
 ): LearningAnalysis {
   const signals = detectLearningSignals(input, thresholds);
-  const findings = signals.slice(0, 5).map((signal) => ({ ...signal }));
+  const findings = signals.slice(0, 3).map((signal) => ({ ...signal }));
   const recommendedActions = signals
     .filter((signal) => signal.type !== "insufficient_evidence")
     .map(toAction)
     .filter((action, index, items) => items.findIndex((item) => item.action === action.action) === index)
-    .slice(0, 3);
+    .slice(0, 1);
   return {
     overallStatus: signals.some((signal) => signal.type === "review_overload")
       ? "overloaded"
@@ -398,73 +418,104 @@ export function buildLearningAnalysisAgentContext(
   input: LearningAnalysisInput,
   thresholds: AnalysisThresholds = ANALYSIS_THRESHOLDS,
   policy: LearningAnalysisAgentPolicy = AI_AGENT_POLICY,
+  versions?: Partial<LearningAnalysisContextVersions>,
 ): LearningAnalysisAgentContext {
   const compactInput = compactLearningAnalysisInput(input, policy);
   const baseline = buildDeterministicLearningAnalysis(compactInput, thresholds);
+  const resolvedVersions = {
+    ...getDefaultContextVersions(compactInput),
+    ...versions,
+  };
   return {
     input: compactInput,
     baseline,
-    cacheKey: createLearningAnalysisCacheKey(compactInput),
+    cacheKey: createLearningAnalysisCacheKey(compactInput, resolvedVersions),
+    versions: resolvedVersions,
     shouldCallAi: shouldRunAiLearningAnalysis(compactInput, baseline, policy),
   };
 }
 
 /**
- * 內容相同時產生相同 key，讓上層可避免重複呼叫 AI；這不是安全雜湊，只作快取識別。
+ * 內容相同時產生相同 key，讓上層可避免重複呼叫 AI。
  */
 export function createLearningAnalysisCacheKey(
   input: LearningAnalysisInput,
-  version = "v1",
+  versions: Partial<LearningAnalysisContextVersions> | string = {},
 ): string {
-  const signature = JSON.stringify({
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd,
-    summary: input.summary,
-    weakItems: input.weakItems,
-  });
-  return `${version}:${hashText(signature)}`;
+  const resolvedVersions = typeof versions === "string"
+    ? { ...getDefaultContextVersions(input), schemaVersion: versions }
+    : { ...getDefaultContextVersions(input), ...versions };
+  return `sha256:${sha256Text(canonicalize({ input, versions: resolvedVersions }))}`;
 }
 
 export function validateLearningAnalysis(value: unknown): value is LearningAnalysis {
   if (!isRecord(value) || !hasExactKeys(value, ["overallStatus", "findings", "recommendedActions"])) return false;
   if (value.overallStatus !== "good" && value.overallStatus !== "warning" && value.overallStatus !== "overloaded") return false;
-  if (!Array.isArray(value.findings) || value.findings.length > 5 || !value.findings.every(isValidFinding)) return false;
+  if (!Array.isArray(value.findings) || value.findings.length > 3 || !value.findings.every(isValidFinding)) return false;
   return Array.isArray(value.recommendedActions)
-    && value.recommendedActions.length <= 3
+    && value.recommendedActions.length <= 1
     && value.recommendedActions.every(isValidAction);
+}
+
+export function validateLearningAnalysisForContext(
+  value: unknown,
+  input: LearningAnalysisInput,
+): value is LearningAnalysis {
+  if (!validateLearningAnalysis(value)) return false;
+  const allowedWordIds = new Set(input.weakItems.flatMap((item) => [item.wordId, ...item.confusedWordIds]));
+  const allItems = [...value.findings, ...value.recommendedActions];
+  if (allItems.some((item) => item.wordIds.some((wordId) => !allowedWordIds.has(wordId)))) return false;
+  if (allItems.some((item) => new Set(item.wordIds).size !== item.wordIds.length)) return false;
+  const hasOverloadFinding = value.findings.some((finding) => finding.type === "review_overload");
+  if ((value.overallStatus === "overloaded") !== hasOverloadFinding) return false;
+  if (value.recommendedActions.some((action) => action.action === "reduce_new_cards") && !hasOverloadFinding) return false;
+  return true;
 }
 
 export function parseLearningAnalysisJson(
   text: string,
-  fallbackInput: LearningAnalysisInput,
+  fallbackInput: LearningAnalysisInput | LearningAnalysisAgentContext,
 ): LearningAnalysis {
+  const input = isLearningAnalysisAgentContext(fallbackInput) ? fallbackInput.input : fallbackInput;
+  const fallback = isLearningAnalysisAgentContext(fallbackInput)
+    ? fallbackInput.baseline
+    : buildDeterministicLearningAnalysis(input);
+  if (typeof text !== "string" || text.length > MAX_AI_RESPONSE_CHARS) {
+    return fallback;
+  }
   try {
     const parsed: unknown = JSON.parse(text);
-    return validateLearningAnalysis(parsed) ? normalizeAnalysis(parsed) : buildDeterministicLearningAnalysis(fallbackInput);
+    return isLearningAnalysisAgentContext(fallbackInput)
+      ? validateLearningAnalysisForContext(parsed, input) ? normalizeAnalysis(parsed) : fallback
+      : validateLearningAnalysis(parsed) ? normalizeAnalysis(parsed) : fallback;
   } catch {
-    return buildDeterministicLearningAnalysis(fallbackInput);
+    return fallback;
   }
 }
 
 function isValidFinding(value: unknown): value is LearningAnalysis["findings"][number] {
   if (!isRecord(value) || !hasExactKeys(value, ["type", "wordIds", "reason", "evidence", "confidence"])) return false;
-  return isFindingType(value.type) && isStringArray(value.wordIds) && typeof value.reason === "string"
-    && isStringArray(value.evidence) && isFiniteNumber(value.confidence) && value.confidence >= 0 && value.confidence <= 1;
+  return isFindingType(value.type)
+    && isBoundedStringArray(value.wordIds, 3)
+    && isNonEmptyBoundedString(value.reason, MAX_ANALYSIS_TEXT_LENGTH)
+    && isNonEmptyBoundedStringArray(value.evidence, 3, MAX_ANALYSIS_TEXT_LENGTH)
+    && isFiniteNumber(value.confidence) && value.confidence >= 0 && value.confidence <= 1;
 }
 
 function isValidAction(value: unknown): value is LearningAnalysis["recommendedActions"][number] {
   if (!isRecord(value) || !hasExactKeys(value, ["action", "wordIds", "priority", "questionCount", "reason"])) return false;
-  return isActionType(value.action) && isStringArray(value.wordIds) && isFiniteNumber(value.priority)
+  return isActionType(value.action) && isBoundedStringArray(value.wordIds, 3) && isFiniteNumber(value.priority)
     && value.priority >= 0 && value.priority <= 1 && isFiniteNumber(value.questionCount)
     && Number.isInteger(value.questionCount)
-    && value.questionCount >= 1 && value.questionCount <= 20 && typeof value.reason === "string";
+    && value.questionCount >= 1 && value.questionCount <= 20
+    && isNonEmptyBoundedString(value.reason, MAX_ANALYSIS_TEXT_LENGTH);
 }
 
 function normalizeAnalysis(value: LearningAnalysis): LearningAnalysis {
   return {
     overallStatus: value.overallStatus,
-    findings: value.findings.slice(0, 5).map((finding) => ({ ...finding, confidence: clamp(finding.confidence, 0, 1) })),
-    recommendedActions: value.recommendedActions.slice(0, 3).map((action) => ({
+    findings: value.findings.slice(0, 3).map((finding) => ({ ...finding, confidence: clamp(finding.confidence, 0, 1) })),
+    recommendedActions: value.recommendedActions.slice(0, 1).map((action) => ({
       ...action,
       priority: clamp(action.priority, 0, 1),
       questionCount: Math.max(1, Math.min(20, Math.round(action.questionCount))),
@@ -504,6 +555,25 @@ function confidence(reviewCount: number, minimum: number): number {
   return clamp(reviewCount / Math.max(minimum, 5), 0, 1);
 }
 
+function getPeriodReviewCount(item: WeakLearningItem): number {
+  return Number.isFinite(item.periodReviewCount) ? item.periodReviewCount : Math.max(0, item.reviewCount ?? 0);
+}
+
+function getDefaultContextVersions(input: LearningAnalysisInput): LearningAnalysisContextVersions {
+  const parsedEnd = Date.parse(input.periodEnd);
+  const analysisDay = Number.isFinite(parsedEnd)
+    ? new Date(parsedEnd).toISOString().slice(0, 10)
+    : input.periodEnd.slice(0, 10);
+  return {
+    promptVersion: "learning-v2",
+    schemaVersion: "analysis-v1",
+    thresholdVersion: "thresholds-v1",
+    analysisDay,
+    efficiencyPolicyVersion: "efficiency-v1",
+    model: "default",
+  };
+}
+
 function percent(value: number): string {
   return `${Math.round(clamp(value, 0, 1) * 100)}%`;
 }
@@ -525,8 +595,23 @@ function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return actual.length === keys.length && actual.every((key, index) => key === [...keys].sort()[index]);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.length <= maxLength;
+}
+
+function isNonEmptyBoundedString(value: unknown, maxLength: number): value is string {
+  return isBoundedString(value, maxLength) && value.trim().length > 0;
+}
+
+function isBoundedStringArray(value: unknown, maxItems: number, maxLength?: number): value is string[] {
+  return Array.isArray(value)
+    && value.length <= maxItems
+    && value.every((item) => typeof item === "string" && (maxLength === undefined || item.length <= maxLength));
+}
+
+function isNonEmptyBoundedStringArray(value: unknown, maxItems: number, maxLength?: number): value is string[] {
+  return isBoundedStringArray(value, maxItems, maxLength)
+    && value.every((item) => item.trim().length > 0);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -551,11 +636,63 @@ function safeLimit(value: number, fallback: number): number {
   return Number.isFinite(value) && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
-function hashText(value: string): string {
-  let hash = 2_166_136_261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
+function isLearningAnalysisAgentContext(value: LearningAnalysisInput | LearningAnalysisAgentContext): value is LearningAnalysisAgentContext {
+  return isRecord(value) && "input" in value && "baseline" in value && "versions" in value;
+}
+
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`;
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return JSON.stringify(value) ?? "null";
+}
+
+function sha256Text(value: string): string {
+  const source = new TextEncoder().encode(value);
+  const paddedLength = Math.ceil((source.length + 9) / 64) * 64;
+  const message = new Uint8Array(paddedLength);
+  message.set(source);
+  message[source.length] = 0x80;
+  const view = new DataView(message.buffer);
+  const bitLength = source.length * 8;
+  view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x1_0000_0000));
+  view.setUint32(paddedLength - 4, bitLength >>> 0);
+
+  const roundConstants = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+  let hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  for (let offset = 0; offset < message.length; offset += 64) {
+    const words = new Uint32Array(64);
+    for (let index = 0; index < 16; index += 1) words[index] = view.getUint32(offset + index * 4);
+    for (let index = 16; index < 64; index += 1) {
+      const s0 = rotateRight(words[index - 15], 7) ^ rotateRight(words[index - 15], 18) ^ (words[index - 15] >>> 3);
+      const s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ (words[index - 2] >>> 10);
+      words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = hash;
+    for (let index = 0; index < 64; index += 1) {
+      const s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const choose = (e & f) ^ (~e & g);
+      const temp1 = (h + s1 + choose + roundConstants[index] + words[index]) >>> 0;
+      const s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (s0 + majority) >>> 0;
+      [a, b, c, d, e, f, g, h] = [(temp1 + temp2) >>> 0, a, b, c, (d + temp1) >>> 0, e, f, g];
+    }
+    hash = hash.map((value, index) => (value + [a, b, c, d, e, f, g, h][index]) >>> 0);
+  }
+  return hash.map((value) => value.toString(16).padStart(8, "0")).join("");
+}
+
+function rotateRight(value: number, bits: number): number {
+  return (value >>> bits) | (value << (32 - bits));
 }

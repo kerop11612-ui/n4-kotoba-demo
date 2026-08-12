@@ -14366,17 +14366,15 @@
     "reading": "ひゃくとおばん",
     "furigana": "110番[ひゃくとおばん]",
     "partOfSpeech": "名詞",
-    "meaningZhTw": "番ひゃくじゅうきゅうばん119 (the number to call an ambulance in Japan) / 119（日本的急救電話）",
-    "meaningEn": "119",
-    "example": "どろぼうを 見[み]たら、110 番[ひゃくとおばん]に 電話[でんわ]します。\n110 (the number to call the police in Japan) 110\n如果发现小偷，就拨打110。",
-    "exampleZhTw": "",
+    "meaningZhTw": "110號（日本的警察電話）",
+    "meaningEn": "110 (police emergency number in Japan)",
+    "example": "どろぼうを 見[み]たら、110 番[ひゃくとおばん]に 電話[でんわ]します。",
+    "exampleZhTw": "如果看到小偷，就撥打110報警。",
     "related": [],
     "additionZhTw": "",
     "wordAudio": "/audio/n4/source-9789575324896/word_0604.mp3",
     "sentenceAudio": "/audio/n4/source-9789575324896/sentence_0604.mp3",
-    "reviewReasons": [
-      "例句翻譯缺漏"
-    ],
+    "reviewReasons": [],
     "level": "n4",
     "image": ""
   },

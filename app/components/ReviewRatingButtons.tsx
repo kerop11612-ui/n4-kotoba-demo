@@ -6,19 +6,20 @@ type ReviewRatingButtonsProps = {
   onRate: (rating: ReviewRating) => void;
 };
 
-const ratings: Array<[ReviewRating, string]> = [
-  ["again", "忘記"],
-  ["hard", "困難"],
-  ["good", "想起"],
-  ["easy", "熟練"],
+const ratings: Array<[ReviewRating, string, string]> = [
+  ["again", "忘記", "1"],
+  ["hard", "困難", "2"],
+  ["good", "想起", "3"],
+  ["easy", "熟練", "4"],
 ];
 
 export function ReviewRatingButtons({ disabled, onRate }: ReviewRatingButtonsProps) {
   return (
     <div className={styles.reviewRatings}>
-      {ratings.map(([rating, label]) => (
-        <button key={rating} type="button" disabled={disabled} onClick={() => onRate(rating)}>
-          {label}
+      {ratings.map(([rating, label, shortcut]) => (
+        <button key={rating} type="button" disabled={disabled} aria-keyshortcuts={shortcut} onClick={() => onRate(rating)}>
+          <kbd>{shortcut}</kbd>
+          <span>{label}</span>
         </button>
       ))}
     </div>

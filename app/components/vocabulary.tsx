@@ -1,22 +1,8 @@
 import { Fragment, type ReactNode } from "react";
 import styles from "../demo.module.css";
+import type { VocabularyWord } from "../../src/vocabulary/types";
 
-export type DemoWord = {
-  id: string;
-  number: number;
-  chapterNumber: number;
-  chapterTitle: string;
-  sectionNumber: number;
-  sectionTitle: string;
-  word: string;
-  reading: string;
-  partOfSpeech: string;
-  meaningZhTw: string;
-  example: string;
-  exampleZhTw: string;
-  wordAudio: string;
-  sentenceAudio: string;
-};
+export type DemoWord = VocabularyWord;
 
 export type AudioStep = {
   id: string;
@@ -51,4 +37,18 @@ export function renderRuby(text: string): ReactNode[] {
 
 export function AudioIcon() {
   return <span className={styles.audioIcon} aria-hidden="true" />;
+}
+
+export function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg className={styles.starIcon} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="m12 3.7 2.56 5.19 5.73.83-4.15 4.04.98 5.71L12 16.77l-5.12 2.7.98-5.71-4.15-4.04 5.73-.83L12 3.7Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }

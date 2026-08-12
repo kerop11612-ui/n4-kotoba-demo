@@ -1,6 +1,7 @@
-:root { --canvas: #f2efe7; --surface: #fffdf8; --raised: #f7f1e8; --ink: #17212b; --muted: #655e55; --accent: #b85e24; --line: #d9d0c4; --soft: #e8e0d6; }
+:root { --canvas: #f2efe7; --surface: #fffdf8; --raised: #f7f1e8; --ink: #17212b; --muted: #655e55; --accent: #9f4d1b; --line: #d9d0c4; --soft: #e8e0d6; }
 .page { min-height: 100vh; padding: 30px clamp(18px, 5vw, 72px) 64px; background: var(--canvas); color: var(--ink); }
-.topbar, .continueCard, .stats, .actions, .chapterSection, .recent { max-width: 1180px; margin-inline: auto; }
+.topbar, .continueCard, .stats, .actions, .chapterSection, .recent, .dataTools { max-width: 1180px; margin-inline: auto; }
+.page > article { max-width: 1180px; margin-inline: auto; }
 .topbar { display: flex; justify-content: space-between; align-items: flex-start; }
 .eyebrow { margin: 0; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
 .topbar h1 { margin: 8px 0 0; font-size: clamp(32px, 5vw, 52px); letter-spacing: -.04em; }
@@ -30,11 +31,22 @@
 .progressTrack { height: 6px; overflow: hidden; border-radius: 999px; background: var(--soft); }
 .progressTrack i { display: block; width: 0; height: 100%; background: var(--accent); }
 .emptyState { border: 1px dashed var(--line); border-radius: 12px; padding: 28px; color: var(--muted); text-align: center; background: rgb(255 253 248 / 55%); }
+.dataTools { display: grid; gap: 18px; margin-top: 48px; border-top: 1px solid var(--line); padding-top: 24px; }
+.dataTools h2 { margin: 7px 0 6px; font-size: 24px; }
+.dataTools p:not(.eyebrow) { margin: 0; color: var(--muted); }
+.dataActions { display: flex; flex-wrap: wrap; gap: 10px; }
+.fileButton { position: relative; overflow: hidden; }
+.fileButton input { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
+.dangerButton { min-height: 44px; border: 1px solid #a9442c; border-radius: 9px; padding: 0 17px; background: transparent; color: #a9442c; font: inherit; font-weight: 800; cursor: pointer; }
+.dangerButton:disabled, .actionSecondary:disabled { cursor: not-allowed; opacity: .55; }
+.dataNotice { font-size: 13px; }
+.recommendationNotice { max-width: 1180px; margin: 8px auto 0; color: var(--muted); font-size: 13px; }
 @media (max-width: 700px) {
   .page { padding: 20px 14px 44px; }
   .continueCard { align-items: stretch; flex-direction: column; margin-top: 34px; padding: 22px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .actions { display: grid; grid-template-columns: 1fr; }
+  .dataActions { display: grid; grid-template-columns: 1fr; }
   .chapterRow { grid-template-columns: 38px 1fr auto; gap: 10px; padding: 0 12px; }
   .chapterProgress { display: none; }
   .progressTrack { grid-column: 2 / -1; margin-top: -12px; }

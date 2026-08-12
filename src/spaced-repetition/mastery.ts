@@ -40,6 +40,7 @@ export function calculateMasterySnapshot(
     0,
     reviewCount,
   );
+  const correctEvidence = Math.min(reviewCount, independentCorrect + hintedCorrect);
   const currentRecall = currentRetrievability(memory, now);
   const futureDate = new Date(now.getTime() + safeHorizonDays * DAY);
   const futureRecall = Number.isFinite(futureDate.getTime())
@@ -50,7 +51,7 @@ export function calculateMasterySnapshot(
     currentRecallPercent: toPercent(currentRecall),
     masteryPercent: toPercent(futureRecall),
     independentRecallRatePercent: toPercent(independentCorrect / reviewCount),
-    hintDependencyPercent: toPercent(hintedCorrect / reviewCount),
+    hintDependencyPercent: correctEvidence ? toPercent(hintedCorrect / correctEvidence) : 0,
     reviewCount,
     horizonDays: safeHorizonDays,
   };

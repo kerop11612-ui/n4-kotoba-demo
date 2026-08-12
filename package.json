@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:ai-bridge": "node scripts/ai-bridge/run.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "lint:app": "eslint app src",
-    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs",
+    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs tests/vocabulary.test.mjs tests/ai-learning-adapter.test.mjs tests/ai-chat.test.mjs tests/ai-bridge.test.mjs",
     "test:core": "npm test",
     "check:types": "tsc --noEmit",
     "check:fast": "npm run check:types && npm run lint:app && npm run test:core",
@@ -16,7 +17,7 @@
     "verify": "npm run check && npm run build"
   },
   "dependencies": {
-    "next": "^16.2.12",
+    "next": "^16.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "ts-fsrs": "^5.4.1"
@@ -26,12 +27,12 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.0",
     "typescript": "5.9.3"
   },
   "type": "module",
   "overrides": {
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "sharp": "0.35.0"
   }
 }
