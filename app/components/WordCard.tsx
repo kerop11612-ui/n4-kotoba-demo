@@ -1,4 +1,3 @@
-import { useState } from "react";
 import styles from "../demo.module.css";
 import { calculateMasterySnapshot, getMasteryLabel } from "../../src/spaced-repetition/mastery";
 import type { MasterySnapshot } from "../../src/spaced-repetition/mastery";
@@ -48,8 +47,7 @@ export function WordCard({
   const wordStepId = `${word.id}-word`;
   const sentenceStepId = `${word.id}-sentence`;
   const isExampleLong = word.example.length > 28 || word.exampleZhTw.length > 22;
-  const [translationRevealed, setTranslationRevealed] = useState(false);
-  const translationHidden = blurTranslations && !translationRevealed;
+  const translationHidden = blurTranslations;
   const translationClassName = translationHidden ? styles.translationHidden : "";
 
   return (
@@ -88,18 +86,10 @@ export function WordCard({
 
       {showMeaning ? (
         <div className={styles.meaningRow}>
-          <p className={`${styles.meaning} ${translationClassName}`} aria-hidden={translationHidden}>{word.meaningZhTw}</p>
+          <div className={styles.translationRevealZone} tabIndex={blurTranslations ? 0 : undefined}>
+            <p className={`${styles.meaning} ${translationClassName}`}>{word.meaningZhTw}</p>
+          </div>
           <div className={styles.meaningMeta}>
-            {blurTranslations && (
-              <button
-                className={styles.translationReveal}
-                type="button"
-                aria-pressed={!translationHidden}
-                onClick={() => setTranslationRevealed((revealed) => !revealed)}
-              >
-                {translationHidden ? "顯示答案" : "隱藏答案"}
-              </button>
-            )}
             <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
               30天保持率 {masteryText}
             </span>
@@ -120,9 +110,11 @@ export function WordCard({
           <div className={styles.exampleCopy}>
             <p className={styles.exampleJapanese} lang="ja">{renderRuby(word.example)}</p>
             {showExampleTranslation && (
-              <p className={`${styles.exampleTranslation} ${translationClassName}`} aria-hidden={translationHidden}>
-                {word.exampleZhTw}
-              </p>
+              <div className={styles.translationRevealZone} tabIndex={blurTranslations ? 0 : undefined}>
+                <p className={`${styles.exampleTranslation} ${translationClassName}`} aria-hidden={translationHidden}>
+                  {word.exampleZhTw}
+                </p>
+              </div>
             )}
           </div>
           <div className={styles.exampleActions}>

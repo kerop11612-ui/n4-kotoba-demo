@@ -305,7 +305,7 @@ export default function DemoPage() {
 
           {blurTranslations && !reviewing && (
           <p className={styles.translationHint}>
-            使用單字卡上的「顯示答案」按鈕查看中文翻譯。
+            滑鼠移入單字或例句中文翻譯區即可查看答案。
           </p>
         )}
 

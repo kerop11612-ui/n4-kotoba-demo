@@ -884,6 +884,24 @@
   transition: filter 160ms ease;
 }
 
+.translationRevealZone {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.translationRevealZone:hover .translationHidden,
+.translationRevealZone:focus-within .translationHidden {
+  filter: none;
+  user-select: text;
+}
+
+.translationRevealZone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .card:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 48%, transparent);
   outline-offset: 3px;
