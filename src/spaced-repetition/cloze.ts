@@ -3,6 +3,12 @@
   replaced: boolean;
 }
 
+export function isClozeAnswerCorrect(answer: string, word: string, reading: string): boolean {
+  const normalizedAnswer = answer.trim();
+  if (!normalizedAnswer) return false;
+  return [word, reading].some((expected) => expected.trim() === normalizedAnswer);
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -16,33 +22,41 @@ export function createClozeSentence(
     .sort((a, b) => b.length - a.length);
   if (!usableTargets.length) return { text: sentence, replaced: false };
 
-  const matcher = new RegExp(usableTargets.map(escapeRegExp).join("|"), "u");
-  const match = matcher.exec(sentence);
-  if (match && match.index >= 0) {
-    return {
-      text:
-        sentence.slice(0, match.index) +
-        "＿＿＿" +
-        sentence.slice(match.index + match[0].length),
-      replaced: true,
-    };
-  }
-
   // Examples store furigana as 漢字[かんじ]. Search visible text while
   // replacing the corresponding source range so other ruby remains.
   const mapped = mapRubySource(sentence);
   const visible = mapped.map((item) => item.char).join("");
   const visibleTarget = usableTargets.find((target) => visible.includes(target));
-  if (!visibleTarget) return { text: sentence, replaced: false };
-  const visibleIndex = visible.indexOf(visibleTarget);
-  const sourceStart = mapped[visibleIndex]?.sourceStart;
-  const sourceEnd = mapped[visibleIndex + Array.from(visibleTarget).length - 1]?.sourceEnd;
-  if (sourceStart === undefined || sourceEnd === undefined) {
-    return { text: sentence, replaced: false };
+  if (visibleTarget) {
+    const targetLength = Array.from(visibleTarget).length;
+    const ranges: Array<{ sourceStart: number; sourceEnd: number }> = [];
+    let visibleIndex = visible.indexOf(visibleTarget);
+    while (visibleIndex >= 0) {
+      const sourceStart = mapped[visibleIndex]?.sourceStart;
+      const sourceEnd = mapped[visibleIndex + targetLength - 1]?.sourceEnd;
+      if (sourceStart !== undefined && sourceEnd !== undefined) {
+        ranges.push({ sourceStart, sourceEnd });
+      }
+      visibleIndex = visible.indexOf(visibleTarget, visibleIndex + targetLength);
+    }
+    if (ranges.length) {
+      let text = sentence;
+      for (const range of ranges.reverse()) {
+        text = text.slice(0, range.sourceStart) + "＿＿＿" + text.slice(range.sourceEnd);
+      }
+      return { text, replaced: true };
+    }
   }
 
+  if (/\[[^\]]+\]/u.test(sentence)) return { text: sentence, replaced: false };
+  const matcher = new RegExp(usableTargets.map(escapeRegExp).join("|"), "u");
+  const match = matcher.exec(sentence);
+  if (!match || match.index < 0) return { text: sentence, replaced: false };
   return {
-    text: sentence.slice(0, sourceStart) + "＿＿＿" + sentence.slice(sourceEnd),
+    text:
+      sentence.slice(0, match.index) +
+      "＿＿＿" +
+      sentence.slice(match.index + match[0].length),
     replaced: true,
   };
 }
@@ -80,4 +94,3 @@ function mapRubySource(sentence: string) {
   appendPlain(sentence.slice(cursor), cursor);
   return mapped;
 }
-

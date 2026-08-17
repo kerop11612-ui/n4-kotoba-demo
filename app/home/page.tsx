@@ -3,87 +3,127 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./home.module.css";
-
-type VocabularyItem = {
-  chapterNumber: number;
-  chapterTitle: string;
-  sectionNumber: number;
-  sectionTitle: string;
-};
-
-type ChapterView = {
-  number: number;
-  title: string;
-  words: number;
-  sections: { number: number; title: string }[];
-};
+import { MemoryDataControls } from "./MemoryDataControls";
+import { AppNav } from "../components/AppNav";
+import { LearningRecommendationCard } from "../components/LearningRecommendationCard";
+import { AiChatDrawer } from "../components/AiChatDrawer";
+import { AiChatFab } from "../components/AiChatFab";
+import { useLearningRecommendation } from "../hooks/useLearningRecommendation";
+import { useAiChat } from "../hooks/useAiChat";
+import type { AiChatContext } from "../../src/ai/chat";
+import type { MemoryRepository } from "../../src/storage/memory-repository";
+import { createMemoryRepository } from "../../src/storage/repository-factory";
+import { buildStudyOverview, type StudyOverview } from "../../src/spaced-repetition/study-session";
+import { buildVocabularyChapters } from "../../src/vocabulary/catalog";
+import { useVocabularyIndex } from "../hooks/useVocabularyIndex";
 
 export default function DemoHomePage() {
-  const [words, setWords] = useState<VocabularyItem[]>([]);
+  const { items, totalWords, loading, error: loadError } = useVocabularyIndex();
+  const [overview, setOverview] = useState<StudyOverview | null>(null);
+  const [repository] = useState<MemoryRepository>(() => createMemoryRepository());
+  const [memoryRevision, setMemoryRevision] = useState(0);
+
+  const chapters = useMemo(() => buildVocabularyChapters(items), [items]);
 
   useEffect(() => {
-    fetch("/vocabulary-n4.json")
-      .then((response) => response.json() as Promise<VocabularyItem[]>)
-      .then(setWords)
-      .catch(() => setWords([]));
-  }, []);
+    if (!chapters.length) return;
+    let cancelled = false;
 
-  const chapters = useMemo<ChapterView[]>(() => {
-    const map = new Map<number, ChapterView>();
-    for (const word of words) {
-      const chapter = map.get(word.chapterNumber) ?? {
-        number: word.chapterNumber,
-        title: word.chapterTitle,
-        words: 0,
-        sections: [],
-      };
-      chapter.words += 1;
-      if (!chapter.sections.some((section) => section.number === word.sectionNumber)) {
-        chapter.sections.push({ number: word.sectionNumber, title: word.sectionTitle });
+    void (async () => {
+      try {
+        await repository.migrate();
+        const data = await repository.exportData();
+        const nextOverview = buildStudyOverview(Object.values(data.memories), items, chapters, undefined, totalWords);
+        if (!cancelled) {
+          setOverview(nextOverview);
+        }
+      } catch {
+        if (!cancelled) {
+          setOverview(null);
+        }
       }
-      map.set(word.chapterNumber, chapter);
-    }
-    return [...map.values()].sort((a, b) => a.number - b.number);
-  }, [words]);
+    })();
 
-  const firstSection = chapters[0]?.sections[0];
+    return () => {
+      cancelled = true;
+    };
+  }, [chapters, items, memoryRevision, repository, totalWords]);
+
+  const dashboard = overview?.dashboard ?? null;
+  const chapterProgress = overview?.chapterProgress ?? {};
+  const recommendedHref = overview?.recommendedUnit
+    ? `/?chapter=${overview.recommendedUnit.chapter}&section=${overview.recommendedUnit.section}`
+    : "/units";
+
+  const firstChapter = chapters[0];
+  const firstSection = firstChapter?.sections[0];
+  const firstSectionHref = firstChapter && firstSection
+    ? `/?chapter=${firstChapter.number}&section=${firstSection.sectionNumber}`
+    : "/units";
+  const studyHref = dashboard?.reviewedWords ? recommendedHref : firstSectionHref;
+  const { recommendation, generatedAt } = useLearningRecommendation({
+    scope: "home",
+    overview,
+  });
+  const chatContext = useMemo<AiChatContext>(() => ({
+    scope: "home",
+    label: "全部 N4 單字",
+    recentPeriodLabel: "最近 3 天",
+    recommendation: recommendation ? {
+      title: recommendation.title,
+      reason: recommendation.reason,
+      evidenceLabel: recommendation.evidenceLabel,
+    } : undefined,
+  }), [recommendation]);
+  const aiChat = useAiChat({ context: chatContext });
 
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
-        <div>
-          <p className={styles.eyebrow}>KOTOBA NOTE</p>
-          <h1>學習首頁</h1>
-        </div>
-        <span className={styles.badge}>N4 HOME</span>
+        <AppNav active="home" />
       </header>
 
       <section className={styles.continueCard}>
         <div>
-          <p className={styles.eyebrow}>開始學習</p>
-          <h2>{firstSection ? `第 1 章・${firstSection.title}` : "N4 單字庫"}</h2>
-          <p>{words.length ? `已整理 ${words.length} 個 N4 單字，從章節選擇學習內容。` : "正在載入單字庫…"}</p>
+          <p className={styles.eyebrow}>今日學習</p>
+          <h2>{dashboard ? `${dashboard.estimatedMinutes} 分鐘專注複習` : "建立今日學習計畫"}</h2>
+          <p>
+            {loading
+              ? "正在載入單字庫…"
+              : loadError || (dashboard
+                ? `${dashboard.dueToday} 個到期・${dashboard.weakWords} 個弱項・建議 ${dashboard.suggestedNewWords} 個新字`
+                : `已整理 ${totalWords} 個 N4 單字，準備開始第一個單元。`)}
+          </p>
         </div>
-        <Link className={styles.primaryButton} href={firstSection ? "/?chapter=1&section=1" : "/units"}>開啟單字庫</Link>
+        <Link className={styles.primaryButton} href={studyHref}>開始今日學習</Link>
       </section>
+
+      {recommendation && (
+        <LearningRecommendationCard
+          recommendation={recommendation}
+          sourceLabel="本機規則"
+          generatedAt={generatedAt}
+          onStart={() => window.location.assign(studyHref)}
+          onAskWhy={() => aiChat.open("為什麼推薦這個？")}
+        />
+      )}
 
       <section className={styles.stats} aria-label="單字庫統計">
         {[
-          ["N4 單字", words.length ? String(words.length) : "—"],
-          ["章節", chapters.length ? String(chapters.length) : "—"],
-          ["單元", chapters.length ? String(chapters.reduce((total, chapter) => total + chapter.sections.length, 0)) : "—"],
-          ["音訊", words.length ? "已連結" : "—"],
-        ].map(([label, value]) => (
+          ["今日到期", dashboard ? String(dashboard.dueToday) : "—", "先處理最該複習的字"],
+          ["弱項", dashboard ? String(dashboard.weakWords) : "—", "依錯誤與獨立回想判定"],
+          ["已學單字", dashboard ? String(dashboard.reviewedWords) : "—", `共 ${totalWords || "—"} 個 N4 單字`],
+          ["預估時間", dashboard ? `${dashboard.estimatedMinutes} 分` : "—", "以每題約 15 秒估算"],
+        ].map(([label, value, detail]) => (
           <article className={styles.statCard} key={label}>
             <span>{label}</span>
             <strong>{value}</strong>
-            <small>資料庫內容</small>
+            <small>{detail}</small>
           </article>
         ))}
       </section>
 
       <section className={styles.actions}>
-        <Link className={styles.actionPrimary} href="/?chapter=1&section=1">開始學習</Link>
         <Link className={styles.actionSecondary} href="/units">瀏覽全部章節</Link>
         <Link className={styles.actionSecondary} href="/">搜尋單字</Link>
       </section>
@@ -99,12 +139,20 @@ export default function DemoHomePage() {
         <div className={styles.chapterList}>
           {chapters.map((chapter) => {
             const section = chapter.sections[0];
+            const progress = chapterProgress[chapter.number];
             return (
-              <Link className={styles.chapterRow} href={`/?chapter=${chapter.number}&section=${section?.number ?? 1}`} key={chapter.number}>
+              <Link className={styles.chapterRow} href={`/?chapter=${chapter.number}&section=${section?.sectionNumber ?? 1}`} key={chapter.number}>
                 <span className={styles.chapterNumber}>{String(chapter.number).padStart(2, "0")}</span>
                 <strong>第 {chapter.number} 章・{chapter.title}</strong>
-                <span className={styles.chapterProgress}>{chapter.words} 詞・{chapter.sections.length} 節</span>
-                <span className={styles.progressTrack}><i /></span>
+                <span className={styles.chapterProgress}>{chapter.words} 詞・{chapter.sections.length} 節・{progress === undefined ? "進度載入中" : `${progress}% 已學習`}</span>
+                <span
+                  className={styles.progressTrack}
+                  role="progressbar"
+                  aria-label={`第 ${chapter.number} 章學習進度`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress ?? 0}
+                ><i style={{ width: `${progress ?? 0}%` }} /></span>
               </Link>
             );
           })}
@@ -120,6 +168,23 @@ export default function DemoHomePage() {
         </div>
         <div className={styles.emptyState}>每個單元都有單字、假名、中文意思、例句與單字／例句音訊。</div>
       </section>
+
+      <MemoryDataControls repository={repository} onChanged={() => setMemoryRevision((revision) => revision + 1)} />
+      {!aiChat.isOpen && <AiChatFab onOpen={() => aiChat.open()} />}
+      <AiChatDrawer
+        open={aiChat.isOpen}
+        context={chatContext}
+        messages={aiChat.messages}
+        draft={aiChat.draft}
+        status={aiChat.status}
+        error={aiChat.error}
+        onDraftChange={aiChat.setDraft}
+        onSend={aiChat.send}
+        onStop={aiChat.stop}
+        onRetry={aiChat.retry}
+        onClear={aiChat.clear}
+        onClose={aiChat.close}
+      />
     </main>
   );
 }

@@ -7,6 +7,13 @@ export function currentRetrievability(
   now = new Date(),
 ): number {
   if (!memory || memory.reviewCount === 0) return 0;
-  return Math.max(0, Math.min(1, fsrsScheduler.get_retrievability(deserializeCard(memory.fsrsCard), now, false)));
+  if (!Number.isFinite(now.getTime())) return 0;
+  try {
+    const card = deserializeCard(memory.fsrsCard);
+    if (!Number.isFinite(card.due.getTime()) || !Number.isFinite(card.stability) || card.stability <= 0) return 0;
+    const value = fsrsScheduler.get_retrievability(card, now, false);
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  } catch {
+    return 0;
+  }
 }
-

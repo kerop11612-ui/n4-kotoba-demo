@@ -1,84 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "../demo.module.css";
-
-type FavoriteWord = {
-  id: string;
-  number: number;
-  chapterNumber: number;
-  sectionNumber: number;
-  word: string;
-  reading: string;
-  partOfSpeech: string;
-  meaningZhTw: string;
-  example: string;
-  exampleZhTw: string;
-  wordAudio: string;
-  sentenceAudio: string;
-};
-
-const FAVORITES_KEY = "kotoba-demo-favorites";
+import { AppNav } from "../components/AppNav";
+import { renderRuby, StarIcon } from "../components/vocabulary";
+import { useFavorites } from "../hooks/useFavorites";
+import { useFavoriteVocabulary } from "../hooks/useFavoriteVocabulary";
+import { useVocabularyIndex } from "../hooks/useVocabularyIndex";
+import { searchVocabulary } from "../../src/vocabulary/selectors";
 
 export default function FavoritesPage() {
-  const [words, setWords] = useState<FavoriteWord[]>([]);
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(FAVORITES_KEY) ?? "[]");
-      return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const { items, loading: indexLoading, error: indexError } = useVocabularyIndex();
+  const { favoriteIds, toggleFavorite, error: favoriteError } = useFavorites();
+  const { words, loading: favoriteLoading, error: favoriteErrorMessage } = useFavoriteVocabulary(items, favoriteIds);
   const [query, setQuery] = useState("");
-  const [message, setMessage] = useState("載入收藏清單中…");
-
-  useEffect(() => {
-    fetch("/vocabulary-n4.json")
-      .then((response) => {
-        if (!response.ok) throw new Error("load failed");
-        return response.json() as Promise<FavoriteWord[]>;
-      })
-      .then((items) => {
-        setWords(items);
-        setMessage("");
-      })
-      .catch(() => setMessage("單字資料載入失敗，請重新整理頁面。"));
-
-  }, []);
+  const message = indexError || favoriteError || favoriteErrorMessage || (indexLoading || favoriteLoading ? "載入收藏清單中…" : "");
+  const validFavoriteIds = useMemo(
+    () => new Set(items.filter((item) => favoriteIds.has(item.id)).map((item) => item.id)),
+    [favoriteIds, items],
+  );
 
   const favoriteWords = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    return words.filter((word) => {
-      if (!favoriteIds.has(word.id)) return false;
-      if (!normalizedQuery) return true;
-      return [word.word, word.reading, word.meaningZhTw, word.exampleZhTw]
-        .some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
-    });
+    return searchVocabulary(words.filter((word) => favoriteIds.has(word.id)), query);
   }, [favoriteIds, query, words]);
-
-  function removeFavorite(id: string) {
-    setFavoriteIds((previous) => {
-      const next = new Set(previous);
-      next.delete(id);
-      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }
 
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
-        <Link className={styles.brand} href="/">
-          <span className={styles.brandMark}>N4</span>
-          <span>
-            <strong>N4 ことば帳</strong>
-            <small>FAVORITES</small>
-          </span>
-        </Link>
-        <Link className={styles.unitMapLink} href="/">返回單字庫</Link>
+        <AppNav active="favorites" />
       </header>
 
       <section className={styles.workspace}>
@@ -87,12 +37,12 @@ export default function FavoritesPage() {
             <p className={styles.eyebrow}>N4 學習清單</p>
             <h1>收藏單字</h1>
           </div>
-          <span className={styles.wordCount}>{favoriteIds.size} WORDS</span>
+          <span className={styles.wordCount}>{validFavoriteIds.size} 個收藏</span>
         </header>
 
         <div className={styles.toolbar}>
           <label className={styles.searchField}>
-            <span className={styles.visuallyHidden}>搜尋收藏單字</span>
+            <span className={styles.searchLabel}>搜尋收藏</span>
             <input
               type="search"
               value={query}
@@ -119,9 +69,9 @@ export default function FavoritesPage() {
                     type="button"
                     aria-label={`取消收藏${word.word}`}
                     title="取消收藏"
-                    onClick={() => removeFavorite(word.id)}
+                    onClick={() => toggleFavorite(word.id)}
                   >
-                    ★
+                    <StarIcon filled />
                   </button>
                   <span className={styles.partOfSpeech}>{word.partOfSpeech}</span>
                 </div>
@@ -133,7 +83,7 @@ export default function FavoritesPage() {
 
                 <div className={styles.exampleBlock}>
                   <div className={styles.exampleCopy}>
-                    <p className={styles.exampleJapanese} lang="ja">{word.example}</p>
+                    <p className={styles.exampleJapanese} lang="ja">{renderRuby(word.example)}</p>
                     <p className={styles.exampleTranslation}>{word.exampleZhTw}</p>
                   </div>
                   <div className={styles.favoriteCardActions}>
