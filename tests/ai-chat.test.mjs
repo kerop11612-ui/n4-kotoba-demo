@@ -97,10 +97,51 @@ test("default client calls browser fetch with the global receiver", async () => 
   };
   try {
     const client = new LocalAiClient();
-    assert.deepEqual(await client.status(), { ok: true, connected: true });
+    assert.deepEqual(await client.status(), { ok: false, connected: false, reason: "invalid_status", usage: null });
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("LocalAiClient status reports ChatGPT login requirement", async () => {
+  const client = new LocalAiClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      connected: false,
+      reason: "codex_chatgpt_login_required",
+      usage: null,
+    }), { status: 200 }),
+  });
+  assert.deepEqual(await client.status(), {
+    ok: true,
+    connected: false,
+    reason: "codex_chatgpt_login_required",
+    usage: null,
+  });
+});
+
+test("LocalAiClient status parses safe Codex usage fields", async () => {
+  const client = new LocalAiClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      connected: true,
+      email: "must-not-survive@example.com",
+      usage: {
+        connected: true,
+        authMode: "chatgpt",
+        planType: "pro",
+        primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+        secondary: null,
+        fetchedAt: "2026-08-20T06:00:00.000Z",
+        accessToken: "must-not-survive",
+      },
+    }), { status: 200 }),
+  });
+  const status = await client.status();
+  assert.equal(status.connected, true);
+  assert.equal(status.usage?.planType, "pro");
+  assert.equal(Object.hasOwn(status, "email"), false);
+  assert.equal(Object.hasOwn(status.usage ?? {}, "accessToken"), false);
 });
 
 function authorizedJson(sessionToken, body) {
@@ -181,6 +222,21 @@ test("chat adapter falls back on incomplete model streams", async () => {
     { type: "delta", text: "部分" },
     { type: "fallback", reason: "ai_unavailable" },
   ]);
+});
+
+test("chat adapter preserves only the safe ChatGPT login fallback reason", async () => {
+  const adapter = createChatAdapter({
+    model: {
+      async complete() {
+        const error = new Error("codex_chatgpt_login_required");
+        error.code = "codex_chatgpt_login_required";
+        throw error;
+      },
+    },
+  });
+  const records = [];
+  for await (const record of adapter.chat(request)) records.push(record);
+  assert.deepEqual(records, [{ type: "fallback", reason: "codex_chatgpt_login_required" }]);
 });
 
 const userMessage = {

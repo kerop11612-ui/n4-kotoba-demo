@@ -7,6 +7,11 @@ import {
 import { isUsableCachedAnalysis } from "../../src/ai/ai-cache.ts";
 
 const MAX_RESPONSE_CHARS = 50_000;
+const SAFE_FALLBACK_REASONS = new Set([
+  "codex_chatgpt_login_required",
+  "aborted",
+  "timeout",
+]);
 
 export function createLearningAnalysisAdapter({
   model,
@@ -79,13 +84,19 @@ export function createLearningAnalysisAdapter({
           completedAt,
         };
       } catch (error) {
-        return fallback(error?.name === "AbortError" ? "aborted_or_timeout" : "ai_unavailable");
+        return fallback(getFallbackReason(error, signal));
       } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", forwardAbort);
       }
     },
   };
+}
+
+function getFallbackReason(error, signal) {
+  if (SAFE_FALLBACK_REASONS.has(error?.code)) return error.code;
+  if (error?.name === "AbortError") return signal?.aborted ? "aborted" : "timeout";
+  return "ai_unavailable";
 }
 
 export function buildLearningAnalysisPrompt(context) {

@@ -9,6 +9,23 @@ export type AiAnalysisRecord =
 export type AiStatus = {
   ok: boolean;
   connected: boolean;
+  reason?: string;
+  usage: CodexUsageSnapshot | null;
+};
+
+export type CodexUsageWindow = {
+  usedPercent: number;
+  windowDurationMins: number;
+  resetsAt: string;
+};
+
+export type CodexUsageSnapshot = {
+  connected: true;
+  authMode: "chatgpt";
+  planType: string | null;
+  primary: CodexUsageWindow | null;
+  secondary: CodexUsageWindow | null;
+  fetchedAt: string;
 };
 
 type FetchLike = typeof fetch;
@@ -36,9 +53,10 @@ export class LocalAiClient {
   async status(signal?: AbortSignal): Promise<AiStatus> {
     try {
       const response = await this.fetchImpl(`${this.baseUrl}/v1/status`, { signal });
-      return { ok: response.ok, connected: response.ok };
+      const body: unknown = await response.json();
+      return parseStatus(body, response.ok);
     } catch {
-      return { ok: false, connected: false };
+      return { ok: false, connected: false, reason: "ai_unavailable", usage: null };
     }
   }
 
@@ -138,6 +156,67 @@ export class LocalAiClient {
     this.sessionToken = body.sessionToken;
     return body.sessionToken;
   }
+}
+
+function parseStatus(value: unknown, responseOk: boolean): AiStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalidStatus();
+  const record = value as Record<string, unknown>;
+  if (typeof record.ok !== "boolean" || typeof record.connected !== "boolean") return invalidStatus();
+  const status: AiStatus = {
+    ok: record.ok && responseOk,
+    connected: record.connected,
+    usage: null,
+  };
+  if (typeof record.reason === "string") status.reason = record.reason;
+  if (record.usage !== null && !isCodexUsageSnapshot(record.usage)) return invalidStatus();
+  status.usage = record.usage === null ? null : normalizeCodexUsageSnapshot(record.usage);
+  return status;
+}
+
+function isCodexUsageSnapshot(value: unknown): value is CodexUsageSnapshot {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.connected === true
+    && record.authMode === "chatgpt"
+    && (record.planType === null || typeof record.planType === "string")
+    && isCodexUsageWindow(record.primary)
+    && isCodexUsageWindow(record.secondary)
+    && typeof record.fetchedAt === "string";
+}
+
+function isCodexUsageWindow(value: unknown): value is CodexUsageWindow | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.usedPercent === "number"
+    && Number.isFinite(record.usedPercent)
+    && typeof record.windowDurationMins === "number"
+    && Number.isFinite(record.windowDurationMins)
+    && typeof record.resetsAt === "string";
+}
+
+function normalizeCodexUsageSnapshot(value: CodexUsageSnapshot): CodexUsageSnapshot {
+  return {
+    connected: true,
+    authMode: "chatgpt",
+    planType: value.planType,
+    primary: normalizeCodexUsageWindow(value.primary),
+    secondary: normalizeCodexUsageWindow(value.secondary),
+    fetchedAt: value.fetchedAt,
+  };
+}
+
+function normalizeCodexUsageWindow(value: CodexUsageWindow | null): CodexUsageWindow | null {
+  if (!value) return null;
+  return {
+    usedPercent: value.usedPercent,
+    windowDurationMins: value.windowDurationMins,
+    resetsAt: value.resetsAt,
+  };
+}
+
+function invalidStatus(): AiStatus {
+  return { ok: false, connected: false, reason: "invalid_status", usage: null };
 }
 
 function parseRecord(line: string): AiAnalysisRecord {

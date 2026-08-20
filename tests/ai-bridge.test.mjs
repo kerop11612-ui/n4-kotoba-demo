@@ -8,6 +8,7 @@ import {
   requireChatGptAccount,
 } from "../scripts/ai-bridge/codex-usage.mjs";
 import { startAiBridgeRuntime } from "../scripts/ai-bridge/runtime.mjs";
+import { startAiBridgeServer } from "../scripts/ai-bridge/server.mjs";
 
 class FakeAppServerProcess extends EventEmitter {
   constructor(onMessage) {
@@ -285,6 +286,16 @@ test("AI bridge runtime sends browser chat through the App Server model", async 
   let active = false;
   const client = {
     async requireChatGptAccount() { return { type: "chatgpt", planType: "pro" }; },
+    async readCodexUsage() {
+      return {
+        connected: true,
+        authMode: "chatgpt",
+        planType: "pro",
+        primary: null,
+        secondary: null,
+        fetchedAt: "2026-08-20T06:00:00.000Z",
+      };
+    },
     async startThread() { return { threadId: "thread-live", model: "codex-default" }; },
     async *runTurn({ input }) {
       if (active) throw new Error("turn_still_active");
@@ -332,4 +343,35 @@ test("AI bridge runtime sends browser chat through the App Server model", async 
     await runtime.close();
   }
   assert.equal(closed, true);
+});
+
+test("AI bridge status exposes safe Codex usage without account secrets", async () => {
+  const bridge = await startAiBridgeServer({
+    port: 0,
+    adapter: { async analyze() { return { source: "baseline", reason: "unused" }; } },
+    usageProvider: {
+      async read() {
+        return {
+          connected: true,
+          authMode: "chatgpt",
+          planType: "pro",
+          primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+          secondary: null,
+          fetchedAt: "2026-08-20T06:00:00.000Z",
+        };
+      },
+    },
+  });
+  try {
+    const response = await fetch(`${bridge.url}/v1/status`, {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.usage.authMode, "chatgpt");
+    assert.equal(JSON.stringify(body).includes("email"), false);
+    assert.equal(JSON.stringify(body).includes("token"), false);
+  } finally {
+    await bridge.close();
+  }
 });

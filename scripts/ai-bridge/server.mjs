@@ -15,6 +15,7 @@ const CHAT_RECOMMENDATION_KEYS = ["evidenceLabel", "reason", "title"];
 export function startAiBridgeServer({
   adapter,
   chatAdapter,
+  usageProvider,
   host = "127.0.0.1",
   port = 3765,
   allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
@@ -23,7 +24,7 @@ export function startAiBridgeServer({
   if (!adapter || typeof adapter.analyze !== "function") throw new Error("adapter_required");
   const sessions = new Map();
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { adapter, chatAdapter, sessions, allowedOrigins, sessionTtlMs });
+    void handleRequest(request, response, { adapter, chatAdapter, usageProvider, sessions, allowedOrigins, sessionTtlMs });
   });
   return new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -56,7 +57,19 @@ async function handleRequest(request, response, dependencies) {
 
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   if (request.method === "GET" && url.pathname === "/v1/status") {
-    sendJson(response, 200, { ok: true, host: "127.0.0.1" }, origin, dependencies.allowedOrigins);
+    if (!dependencies.usageProvider || typeof dependencies.usageProvider.read !== "function") {
+      sendJson(response, 200, { ok: false, connected: false, reason: "ai_unavailable", usage: null }, origin, dependencies.allowedOrigins);
+      return;
+    }
+    try {
+      const usage = sanitizeUsage(await dependencies.usageProvider.read());
+      sendJson(response, 200, { ok: true, connected: true, usage }, origin, dependencies.allowedOrigins);
+    } catch (error) {
+      const reason = error?.code === "codex_chatgpt_login_required"
+        ? "codex_chatgpt_login_required"
+        : "ai_unavailable";
+      sendJson(response, 200, { ok: reason === "codex_chatgpt_login_required", connected: false, reason, usage: null }, origin, dependencies.allowedOrigins);
+    }
     return;
   }
   if (!dependencies.allowedOrigins.has(origin)) return sendError(response, 403, "origin_not_allowed");
@@ -159,6 +172,33 @@ async function handleRequest(request, response, dependencies) {
   }
 
   sendError(response, 404, "not_found");
+}
+
+function sanitizeUsage(value) {
+  if (!value || typeof value !== "object" || value.connected !== true || value.authMode !== "chatgpt") {
+    throw new Error("invalid_codex_usage");
+  }
+  return {
+    connected: true,
+    authMode: "chatgpt",
+    planType: typeof value.planType === "string" ? value.planType : null,
+    primary: sanitizeUsageWindow(value.primary),
+    secondary: sanitizeUsageWindow(value.secondary),
+    fetchedAt: typeof value.fetchedAt === "string" ? value.fetchedAt : new Date().toISOString(),
+  };
+}
+
+function sanitizeUsageWindow(value) {
+  if (!value || typeof value !== "object") return null;
+  const usedPercent = Number(value.usedPercent);
+  const windowDurationMins = Number(value.windowDurationMins);
+  const resetsAt = typeof value.resetsAt === "string" ? value.resetsAt : "";
+  if (!Number.isFinite(usedPercent) || !Number.isFinite(windowDurationMins) || !resetsAt) return null;
+  return {
+    usedPercent: Math.min(100, Math.max(0, Math.round(usedPercent))),
+    windowDurationMins: Math.max(0, Math.round(windowDurationMins)),
+    resetsAt,
+  };
 }
 
 async function readContext(request) {

@@ -12,7 +12,8 @@ export async function startAiBridgeRuntime({
   const cache = createMemoryAnalysisCache();
   const adapter = createLearningAnalysisAdapter({ model, cache });
   const chatAdapter = createChatAdapter({ model });
-  const bridge = await startAiBridgeServer({ adapter, chatAdapter, host, port });
+  const usageProvider = { read: () => client.readCodexUsage() };
+  const bridge = await startAiBridgeServer({ adapter, chatAdapter, usageProvider, host, port });
   let closed = false;
   return {
     ...bridge,
