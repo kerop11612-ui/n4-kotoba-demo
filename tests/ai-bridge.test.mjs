@@ -3,6 +3,10 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import { AppServerClient, createAppServerModel } from "../scripts/ai-bridge/app-server-client.mjs";
+import {
+  normalizeCodexUsage,
+  requireChatGptAccount,
+} from "../scripts/ai-bridge/codex-usage.mjs";
 import { startAiBridgeRuntime } from "../scripts/ai-bridge/runtime.mjs";
 
 class FakeAppServerProcess extends EventEmitter {
@@ -63,6 +67,62 @@ function successfulFakeProcess() {
     }
   });
 }
+
+test("Codex usage accepts ChatGPT and exposes only safe rate-limit fields", () => {
+  const accountResult = {
+    account: { type: "chatgpt", email: "hidden@example.com", planType: "pro" },
+    requiresOpenaiAuth: true,
+  };
+  const rateLimitResult = {
+    rateLimits: {
+      limitId: "codex",
+      primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: 1787217000 },
+      secondary: null,
+      rateLimitReachedType: null,
+    },
+    secret: "must-not-leak",
+  };
+  assert.deepEqual(
+    normalizeCodexUsage(accountResult, rateLimitResult, Date.parse("2026-08-20T06:00:00.000Z")),
+    {
+      connected: true,
+      authMode: "chatgpt",
+      planType: "pro",
+      primary: {
+        usedPercent: 25,
+        windowDurationMins: 15,
+        resetsAt: new Date(1787217000 * 1000).toISOString(),
+      },
+      secondary: null,
+      fetchedAt: "2026-08-20T06:00:00.000Z",
+    },
+  );
+});
+
+test("Codex usage rejects API-key and signed-out accounts", () => {
+  assert.throws(
+    () => requireChatGptAccount({ account: { type: "apiKey" }, requiresOpenaiAuth: true }),
+    /codex_chatgpt_login_required/,
+  );
+  assert.throws(
+    () => requireChatGptAccount({ account: null, requiresOpenaiAuth: true }),
+    /codex_chatgpt_login_required/,
+  );
+});
+
+test("Codex usage ignores malformed rate-limit windows", () => {
+  const result = normalizeCodexUsage(
+    { account: { type: "chatgpt", planType: "plus" }, requiresOpenaiAuth: true },
+    {
+      rateLimits: {
+        primary: { usedPercent: "invalid", windowDurationMins: 15, resetsAt: 1787217000 },
+        secondary: null,
+      },
+    },
+    Date.parse("2026-08-20T06:00:00.000Z"),
+  );
+  assert.equal(result.primary, null);
+});
 
 test("AppServerClient streams a signed-in Codex turn without enabling tools", async () => {
   const process = successfulFakeProcess();
