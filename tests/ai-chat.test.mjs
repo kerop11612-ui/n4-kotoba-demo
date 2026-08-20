@@ -14,6 +14,7 @@ import {
 } from "../app/hooks/useAiChat.ts";
 import { getAiChatDrawerActions } from "../app/components/ai-chat-drawer-actions.ts";
 import { getAiChatFabProps } from "../app/components/ai-chat-fab-actions.ts";
+import { formatCodexUsageLabel } from "../app/components/codex-usage-label.ts";
 
 const context = {
   scope: "home",
@@ -37,6 +38,33 @@ function messageAt(index) {
 }
 
 const twelveMessages = Array.from({ length: 12 }, (_, index) => messageAt(index));
+
+test("Codex usage label includes plan, percent, and Taipei reset time", () => {
+  const label = formatCodexUsageLabel({
+    ok: true,
+    connected: true,
+    usage: {
+      connected: true,
+      authMode: "chatgpt",
+      planType: "pro",
+      primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+      secondary: null,
+      fetchedAt: "2026-08-20T06:00:00.000Z",
+    },
+  }, "zh-TW", "Asia/Taipei");
+  assert.match(label, /Codex Pro/);
+  assert.match(label, /已用 25%/);
+  assert.match(label, /14:30/);
+});
+
+test("Codex usage label explains ChatGPT login requirement", () => {
+  assert.equal(formatCodexUsageLabel({
+    ok: true,
+    connected: false,
+    reason: "codex_chatgpt_login_required",
+    usage: null,
+  }), "請先用 ChatGPT 登入 Codex；本功能不使用 API key。");
+});
 
 test("ChatRequest rejects blank and overlong questions", () => {
   assert.throws(() => buildChatRequest({ context, messages: [], question: "   " }), /question_required/);
