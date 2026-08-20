@@ -17,7 +17,7 @@ export class SyncCoordinator {
   pendingCount = 0;
   private readonly cloud: CloudEventStore;
   private readonly stateStore: LocalSyncStateStore;
-  private readonly deviceId: string;
+  readonly deviceId: string;
   private userId: string | null = null;
   private repository: MemoryRepository | null = null;
   private inFlight: Promise<void> | null = null;

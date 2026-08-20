@@ -8,6 +8,7 @@ import { LocalSyncStateStore } from "../../src/sync/local-sync-state";
 import { SyncCoordinator, type SyncStatus } from "../../src/sync/sync-coordinator";
 import { SupabaseEventStore } from "../../src/sync/supabase-event-store";
 import { getSupabaseClient } from "../../src/sync/supabase-client";
+import { SyncingMemoryRepository } from "../../src/sync/syncing-memory-repository";
 import { LearningDataContext, type AuthStatus, type LearningDataContextValue } from "../hooks/useLearningData";
 
 export function LearningDataProvider({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -20,6 +21,7 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
   const [pendingCount, setPendingCount] = useState(0);
   const stateStoreRef = useRef<LocalSyncStateStore | null>(null);
   const coordinatorRef = useRef<SyncCoordinator | null>(null);
+  const ownerRepositoryRef = useRef<MemoryRepository | null>(null);
   const switchingUserRef = useRef<string | null>(null);
 
   const updateSyncState = useCallback((coordinator: SyncCoordinator | null) => {
@@ -32,7 +34,8 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
     coordinatorRef.current = null;
     if (ownerId) {
       stateStoreRef.current?.clear(ownerId);
-      if (repository !== guestRepository) await repository.reset().catch(() => undefined);
+      await ownerRepositoryRef.current?.reset().catch(() => undefined);
+      ownerRepositoryRef.current = null;
     }
     const nextGuest = createMemoryRepository(undefined, undefined, "guest");
     await nextGuest.migrate();
@@ -40,13 +43,14 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
     setUser(null);
     setAuthStatus("signed_out");
     updateSyncState(null);
-  }, [guestRepository, repository, updateSyncState]);
+  }, [updateSyncState]);
 
   const switchToUser = useCallback(async (nextUser: User) => {
     if (!supabase || switchingUserRef.current === nextUser.id) return;
     switchingUserRef.current = nextUser.id;
     try {
       const ownerRepository = createMemoryRepository(undefined, undefined, `user:${nextUser.id}`);
+      ownerRepositoryRef.current = ownerRepository;
       await ownerRepository.migrate();
       const guestData = await guestRepository.exportData();
       const ownerData = await ownerRepository.exportData();
@@ -64,7 +68,7 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
       });
       coordinatorRef.current?.stop();
       coordinatorRef.current = coordinator;
-      setRepository(ownerRepository);
+      setRepository(new SyncingMemoryRepository(ownerRepository, coordinator));
       setUser(nextUser);
       setAuthStatus("signed_in");
       setSyncStatus("syncing");

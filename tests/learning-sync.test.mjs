@@ -6,6 +6,7 @@ import { replayLearningEvents } from "../src/sync/replay-learning-events.ts";
 import { LocalSyncStateStore } from "../src/sync/local-sync-state.ts";
 import { createMemoryRepository } from "../src/storage/repository-factory.ts";
 import { SyncCoordinator } from "../src/sync/sync-coordinator.ts";
+import { SyncingMemoryRepository } from "../src/sync/syncing-memory-repository.ts";
 
 test("merged review events are deduplicated and replayed in time order", () => {
   const base = createWordMemory("n4-0001", "n4-1-1", new Date("2026-08-01T00:00:00Z"));
@@ -159,6 +160,53 @@ test("cloud-first reset leaves local data unchanged when deletion fails", async 
   cloud.clearError = new Error("offline");
   await assert.rejects(coordinator.reset());
   assert.equal((await repository.exportData()).history.length, 1);
+});
+
+test("review commit remains local when cloud sync fails and can retry", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const localRepository = createMemoryRepository(storage, null, "user:owner");
+  await localRepository.migrate();
+  const stateStore = new LocalSyncStateStore(storage);
+  const cloud = new FakeCloudEventStore({ uploadError: new Error("offline") });
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", localRepository);
+  const repository = new SyncingMemoryRepository(localRepository, coordinator);
+  const result = reviewWordMemory(createWordMemory("sync-word", "n4-1-1"), "good", 0, new Date("2026-08-06T00:00:00Z"), 1000, { eventId: "sync-event", reviewFormat: "jp-to-zh" });
+
+  await repository.commitReview(result.memory, result.history, result.event);
+  assert.equal((await localRepository.exportData()).history.length, 1);
+  assert.deepEqual(stateStore.read("owner").outbox.map((item) => item.id), [result.history.id]);
+  await assert.rejects(coordinator.syncNow());
+  cloud.uploadError = null;
+  await coordinator.syncNow();
+  assert.deepEqual(stateStore.read("owner").outbox, []);
+});
+
+test("signed-in reset does not clear local data when cloud deletion fails", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const localRepository = createMemoryRepository(storage, null, "user:owner");
+  await localRepository.migrate();
+  const result = reviewWordMemory(createWordMemory("keep-sync", "n4-1-1"), "good", 0, new Date("2026-08-06T00:00:00Z"), 1000, { eventId: "keep-sync-event", reviewFormat: "jp-to-zh" });
+  await localRepository.commitReview(result.memory, result.history, result.event);
+  const stateStore = new LocalSyncStateStore(storage);
+  const cloud = new FakeCloudEventStore();
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", localRepository);
+  const repository = new SyncingMemoryRepository(localRepository, coordinator);
+  cloud.clearError = new Error("offline");
+
+  await assert.rejects(repository.reset());
+  assert.equal((await localRepository.exportData()).history.length, 1);
 });
 
 class FakeCloudEventStore {
