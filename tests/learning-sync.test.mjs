@@ -3,6 +3,8 @@ import test from "node:test";
 import { createWordMemory, reviewWordMemory } from "../src/spaced-repetition/fsrs-adapter.ts";
 import { reviewHistoryToLearningEvent, seedLearningEvents } from "../src/sync/learning-events.ts";
 import { replayLearningEvents } from "../src/sync/replay-learning-events.ts";
+import { LocalSyncStateStore } from "../src/sync/local-sync-state.ts";
+import { createMemoryRepository } from "../src/storage/repository-factory.ts";
 
 test("merged review events are deduplicated and replayed in time order", () => {
   const base = createWordMemory("n4-0001", "n4-1-1", new Date("2026-08-01T00:00:00Z"));
@@ -35,4 +37,41 @@ test("first-sync seeding adds a deterministic snapshot for incomplete legacy his
   const seeded = seedLearningEvents({ schemaVersion: 2, memories: { ["legacy:jp_to_meaning"]: memory }, history: [], events: [] }, "phone");
   assert.deepEqual(seeded.map((event) => event.id), ["snapshot:legacy:jp_to_meaning:2026-08-04T00:00:00.000Z"]);
   assert.equal(seeded[0].type, "memory_snapshot");
+});
+
+test("repository namespaces do not expose another user's local data", async () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const guest = createMemoryRepository(storage, null, "guest");
+  const owner = createMemoryRepository(storage, null, "user:owner-1");
+  await guest.migrate();
+  await guest.saveWordMemory(createWordMemory("guest-word", "n4-1-1"));
+  await owner.migrate();
+  assert.equal(await owner.getWordMemory("guest-word"), null);
+});
+
+test("outbox enqueue is idempotent by event id", () => {
+  const memoryStorage = new Map();
+  const stateStore = new LocalSyncStateStore({
+    getItem: (key) => memoryStorage.get(key) ?? null,
+    setItem: (key, value) => memoryStorage.set(key, value),
+    removeItem: (key) => memoryStorage.delete(key),
+  });
+  const event = {
+    version: 1,
+    id: "event-a",
+    deviceId: "phone",
+    type: "manual_mastery",
+    wordId: "n4-0001",
+    unitId: "n4-1-1",
+    skill: "jp_to_meaning",
+    occurredAt: "2026-08-04T00:00:00Z",
+    payload: { mastered: true },
+  };
+  stateStore.enqueue("owner-1", [event, event]);
+  assert.equal(stateStore.read("owner-1").outbox.length, 1);
 });

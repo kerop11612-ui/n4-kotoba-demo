@@ -24,9 +24,11 @@ const LEGACY_MEMORY_STORAGE_KEYS = [MEMORY_STORAGE_KEY, "jlpt-apkg-progress-v2",
 
 export class LocalStorageMemoryRepository implements MemoryRepository {
   private readonly storage: Storage | null;
+  private readonly storageKey: string;
   private data: MemoryRepositoryData = emptyMemoryData();
 
-  constructor(storage?: Storage | null) {
+  constructor(storage?: Storage | null, storageKey = MEMORY_STORAGE_KEY) {
+    this.storageKey = storageKey;
     if (storage !== undefined) {
       this.storage = storage;
       return;
@@ -42,7 +44,8 @@ export class LocalStorageMemoryRepository implements MemoryRepository {
     if (!this.storage) return;
     let parsed: unknown = null;
     let foundRaw = false;
-    for (const key of LEGACY_MEMORY_STORAGE_KEYS) {
+    const keys = this.storageKey === MEMORY_STORAGE_KEY ? LEGACY_MEMORY_STORAGE_KEYS : [this.storageKey];
+    for (const key of keys) {
       const raw = this.storage.getItem(key);
       if (raw === null) continue;
       foundRaw = true;
@@ -124,18 +127,22 @@ export class LocalStorageMemoryRepository implements MemoryRepository {
   }
 
   async reset() {
-    for (const key of LEGACY_MEMORY_STORAGE_KEYS) this.storage?.removeItem(key);
+    if (this.storageKey === MEMORY_STORAGE_KEY) {
+      for (const key of LEGACY_MEMORY_STORAGE_KEYS) this.storage?.removeItem(key);
+    } else {
+      this.storage?.removeItem(this.storageKey);
+    }
     this.data = emptyMemoryData();
   }
 
   private persist(data: MemoryRepositoryData = this.data) {
     if (!this.storage) return;
-    this.storage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(data));
+    this.storage.setItem(this.storageKey, JSON.stringify(data));
   }
 
   private readLatestData(): MemoryRepositoryData {
     if (!this.storage) return structuredClone(this.data);
-    const raw = this.storage.getItem(MEMORY_STORAGE_KEY);
+    const raw = this.storage.getItem(this.storageKey);
     if (raw === null) return structuredClone(this.data);
     try {
       return migrateMemoryData(JSON.parse(raw));

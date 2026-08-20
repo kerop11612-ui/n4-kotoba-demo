@@ -3,6 +3,7 @@ import { LocalStorageMemoryRepository } from "./memory-repository.ts";
 import { emptyMemoryData, migrateMemoryData } from "./memory-migration.ts";
 import { applyReviewCommit, isImportableMemoryData, upsertById } from "./memory-repository-utils.ts";
 import { getMemoryKey, type MemoryRepositoryData, type MemorySkill, type ReviewHistoryRecord, type VocabularyReviewEvent, type WordMemoryRecord } from "../spaced-repetition/types.ts";
+import type { RepositoryNamespace } from "../sync/local-sync-state.ts";
 
 const DATABASE_NAME = "n4-kotoba-memory";
 const DATABASE_VERSION = 1;
@@ -16,6 +17,7 @@ type StoredMemoryState = {
 export type IndexedDbMemoryRepositoryOptions = {
   indexedDB?: IDBFactory | null;
   storage?: Storage | null;
+  namespace?: RepositoryNamespace;
 };
 
 /**
@@ -26,6 +28,7 @@ export type IndexedDbMemoryRepositoryOptions = {
 export class IndexedDbMemoryRepository implements MemoryRepository {
   private readonly indexedDB: IDBFactory;
   private readonly legacyStorage: Storage | null;
+  private readonly stateKey: string;
   private dbPromise: Promise<IDBDatabase> | null = null;
   private data: MemoryRepositoryData = emptyMemoryData();
 
@@ -34,6 +37,8 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
     if (!indexedDB) throw new Error("IndexedDB 無法使用");
     this.indexedDB = indexedDB;
     this.legacyStorage = options.storage !== undefined ? options.storage : getBrowserStorage();
+    const namespace = options.namespace ?? "guest";
+    this.stateKey = namespace === "guest" ? STATE_KEY : `state:${namespace}`;
   }
 
   async migrate(): Promise<void> {
@@ -46,9 +51,9 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
 
     // Preserve existing localStorage data on the first IndexedDB open. The
     // old key is intentionally not deleted, so users can still recover it.
-    const legacyRepository = new LocalStorageMemoryRepository(this.legacyStorage);
-    await legacyRepository.migrate();
-    const migrated = await legacyRepository.exportData();
+    const migrated = this.stateKey === STATE_KEY
+      ? await readLegacyMemoryData(this.legacyStorage)
+      : emptyMemoryData();
     await this.replaceStoredData(migrateMemoryData(migrated));
   }
 
@@ -113,7 +118,7 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(STATE_KEY) as IDBRequest<StoredMemoryState | undefined>;
+      const request = store.get(this.stateKey) as IDBRequest<StoredMemoryState | undefined>;
       let nextData: MemoryRepositoryData | null = null;
       let settled = false;
 
@@ -128,7 +133,7 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
         try {
           nextData = migrateMemoryData(request.result?.data ?? emptyMemoryData());
           mutator(nextData);
-          store.put({ data: nextData }, STATE_KEY);
+          store.put({ data: nextData }, this.stateKey);
         } catch (error) {
           try { transaction.abort(); } catch { /* transaction already closed */ }
           fail(error);
@@ -150,7 +155,7 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
     const normalized = migrateMemoryData(data);
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
-      const request = transaction.objectStore(STORE_NAME).put({ data: normalized }, STATE_KEY);
+      const request = transaction.objectStore(STORE_NAME).put({ data: normalized }, this.stateKey);
       let settled = false;
       const fail = (error: unknown) => {
         if (settled) return;
@@ -174,7 +179,7 @@ export class IndexedDbMemoryRepository implements MemoryRepository {
     const database = await this.openDatabase();
     return new Promise<MemoryRepositoryData | null>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
-      const request = transaction.objectStore(STORE_NAME).get(STATE_KEY) as IDBRequest<StoredMemoryState | undefined>;
+      const request = transaction.objectStore(STORE_NAME).get(this.stateKey) as IDBRequest<StoredMemoryState | undefined>;
       request.onerror = () => reject(request.error ?? new Error("IndexedDB 讀取失敗"));
       request.onsuccess = () => resolve(request.result?.data ?? null);
       transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB 讀取失敗"));
@@ -216,4 +221,10 @@ function getBrowserStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+async function readLegacyMemoryData(storage: Storage | null): Promise<MemoryRepositoryData> {
+  const legacyRepository = new LocalStorageMemoryRepository(storage);
+  await legacyRepository.migrate();
+  return legacyRepository.exportData();
 }

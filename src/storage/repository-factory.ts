@@ -1,6 +1,7 @@
 import type { MemoryRepository } from "./memory-repository.ts";
 import { IndexedDbMemoryRepository } from "./indexeddb-memory-repository.ts";
-import { LocalStorageMemoryRepository } from "./memory-repository.ts";
+import { LocalStorageMemoryRepository, MEMORY_STORAGE_KEY } from "./memory-repository.ts";
+import type { RepositoryNamespace } from "../sync/local-sync-state.ts";
 
 /**
  * 建立學習紀錄儲存層的唯一入口。
@@ -11,12 +12,16 @@ import { LocalStorageMemoryRepository } from "./memory-repository.ts";
 export function createMemoryRepository(
   storage?: Storage | null,
   indexedDB?: IDBFactory | null,
+  namespace: RepositoryNamespace = "guest",
 ): MemoryRepository {
   const browserIndexedDb = indexedDB !== undefined ? indexedDB : getBrowserIndexedDb();
   if (browserIndexedDb) {
-    return new IndexedDbMemoryRepository({ indexedDB: browserIndexedDb, storage });
+    return new IndexedDbMemoryRepository({ indexedDB: browserIndexedDb, storage, namespace });
   }
-  return new LocalStorageMemoryRepository(storage);
+  return new LocalStorageMemoryRepository(
+    storage,
+    namespace === "guest" ? MEMORY_STORAGE_KEY : `${MEMORY_STORAGE_KEY}:${namespace}`,
+  );
 }
 
 function getBrowserIndexedDb(): IDBFactory | null {
