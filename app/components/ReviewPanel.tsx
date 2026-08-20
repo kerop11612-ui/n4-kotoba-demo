@@ -1,5 +1,6 @@
 import styles from "../demo.module.css";
 import { createClozeSentence } from "../../src/spaced-repetition/cloze";
+import { getKanaHint } from "../../src/spaced-repetition/kana-hint";
 import type { HintLevel, ReviewFormat, ReviewRating } from "../../src/spaced-repetition/types";
 import { estimateReviewMinutes } from "../../src/spaced-repetition/study-session";
 import type { ReviewSessionSummary } from "../hooks/useReviewSession";
@@ -28,6 +29,8 @@ type ReviewPanelProps = {
   onSetClozeAnswer: (answer: string) => void;
   onCheckClozeAnswer: () => void;
   onRate: (rating: ReviewRating) => void;
+  exitLabel?: string;
+  completionLabel?: string;
 };
 
 export function ReviewPanel({
@@ -52,6 +55,8 @@ export function ReviewPanel({
   onSetClozeAnswer,
   onCheckClozeAnswer,
   onRate,
+  exitLabel = "暫停",
+  completionLabel = "回到單字列表",
 }: ReviewPanelProps) {
   const reviewWord = reviewWords[reviewIndex];
   if (!reviewWord) return null;
@@ -75,8 +80,11 @@ export function ReviewPanel({
     : reviewWords.length
       ? Math.min(100, Math.round(((reviewIndex + 1) / reviewWords.length) * 100))
       : 0;
+  const successRateLabel = reviewFormat === "cloze" ? "答對率" : "自評回想率";
   const hintLabel = reviewHintLevel === 0 ? "例句提示" : reviewHintLevel === 1 ? "顯示完整例句" : "顯示答案";
-  const firstReading = Array.from(reviewWord.reading)[0] ?? Array.from(reviewWord.word)[0] ?? "";
+  const firstKanaHint = getKanaHint(reviewWord.reading, 1) || getKanaHint(reviewWord.word, 1);
+  const twoKanaHint = getKanaHint(reviewWord.reading, 2) || getKanaHint(reviewWord.word, 2);
+  const hasSecondKanaHint = Boolean(twoKanaHint && twoKanaHint !== firstKanaHint);
   const wordLength = Array.from(reviewWord.word).length;
   const readingLength = Array.from(reviewWord.reading).length;
   const japaneseWord = (
@@ -102,7 +110,7 @@ export function ReviewPanel({
     >
       <div className={styles.reviewSessionBar}>
         <button className={styles.reviewExitButton} type="button" onClick={onStopReview}>
-          <span aria-hidden="true">←</span> 結束
+          <span aria-hidden="true">←</span> {reviewComplete ? completionLabel : exitLabel}
         </button>
         <div className={styles.reviewProgressSummary}>
           <div>
@@ -127,17 +135,23 @@ export function ReviewPanel({
           <strong>本輪複習完成</strong>
           <span>已完成 {reviewWords.length} 個單字</span>
           <div className={styles.reviewCompleteStats} aria-label="本輪複習摘要">
-            <div><span>答對率</span><strong>{completionRate}%</strong></div>
-            <div><span>使用提示</span><strong>{reviewSummary.hinted} 題</strong></div>
+            <div><span>{successRateLabel}</span><strong>{completionRate}%</strong></div>
+            <div>
+              <span>使用提示</span>
+              <strong>{reviewSummary.hinted} 題</strong>
+              <small>查看答案 {reviewSummary.revealed} 題</small>
+            </div>
             <div><span>需要再看</span><strong>{reviewSummary.retryWordIds.length} 題</strong></div>
             <div><span>下次複習</span><strong>{nextReviewLabel}</strong></div>
           </div>
           <p className={styles.reviewCompleteNote}>
             {reviewSummary.retryWordIds.length
-              ? "有些單字使用了提示或選了再來一次，稍後再看一次會更穩固。"
+              ? reviewSummary.hinted
+                ? "有些單字使用了手動提示、查看答案或選了再來一次，稍後再看一次會更穩固。"
+                : "你沒有使用手動提示；查看答案或選了再來一次的單字，稍後再看一次會更穩固。"
               : "這輪回想很穩定，保持每天短時間複習。"}
           </p>
-          <button type="button" onClick={onStopReview}>回到單字列表</button>
+          <button type="button" onClick={onStopReview}>{completionLabel}</button>
         </div>
       ) : (
         <>
@@ -188,25 +202,30 @@ export function ReviewPanel({
                 )}
                 {clozeAnswerCorrect === false && clozeAnswerAttempts === 1 && (
                   <>
-                    {reviewHintLevel >= 1 && (
-                      <p className={styles.reviewHintDetail}>首個假名：<strong lang="ja">{firstReading}</strong></p>
+                    {reviewHintLevel >= 1 && firstKanaHint && (
+                      <p className={styles.reviewHintDetail}>假名提示：<strong lang="ja">{getKanaHint(reviewWord.reading, Math.min(reviewHintLevel, 2)) || firstKanaHint}</strong></p>
                     )}
                     <div className={styles.reviewActions}>
-                      {reviewHintLevel < 1 && (
+                      {reviewHintLevel < 1 && firstKanaHint && (
                         <button className={styles.reviewHintButton} type="button" onClick={() => onSetHintLevel(1)}>
-                          顯示首個假名
+                          顯示 1 個假名
                         </button>
                       )}
-                      {reviewHintLevel < 2 && reviewWord.wordAudio && (
+                      {reviewHintLevel < 2 && hasSecondKanaHint && (
+                        <button className={styles.reviewHintButton} type="button" onClick={() => onSetHintLevel(2)}>
+                          顯示 2 個假名
+                        </button>
+                      )}
+                      {reviewHintLevel < 3 && reviewWord.wordAudio && (
                         <button
                           className={styles.reviewHintButton}
                           type="button"
                           onClick={() => {
-                            onSetHintLevel(2);
+                            onSetHintLevel(3);
                             onPlayOne({ id: `${reviewWord.id}-word-hint`, label: `${reviewWord.word}・提示音檔`, src: reviewWord.wordAudio });
                           }}
                         >
-                          再聽一次單字
+                          播放音檔提示
                         </button>
                       )}
                     </div>
@@ -231,8 +250,11 @@ export function ReviewPanel({
                 {reviewHintLevel >= 1 && (
                   <p className={styles.reviewHintDetail}>答案長度：{wordLength} 字／讀音 {readingLength} 個假名</p>
                 )}
-                {reviewHintLevel >= 2 && (
-                  <p className={styles.reviewHintDetail}>首個假名：<strong lang="ja">{firstReading}</strong></p>
+                {reviewHintLevel >= 2 && firstKanaHint && (
+                  <p className={styles.reviewHintDetail}>假名提示：<strong lang="ja">{firstKanaHint}</strong></p>
+                )}
+                {reviewHintLevel >= 3 && hasSecondKanaHint && (
+                  <p className={styles.reviewHintDetail}>再多一個假名：<strong lang="ja">{twoKanaHint}</strong></p>
                 )}
                 <div className={styles.reviewActions}>
                   {reviewHintLevel < 1 && (
@@ -240,9 +262,14 @@ export function ReviewPanel({
                       提示字數
                     </button>
                   )}
-                  {reviewHintLevel < 2 && (
+                  {reviewHintLevel < 2 && firstKanaHint && (
                     <button className={styles.reviewHintButton} type="button" onClick={() => onSetHintLevel(2)}>
-                      顯示首個假名
+                      顯示 1 個假名
+                    </button>
+                  )}
+                  {reviewHintLevel < 3 && hasSecondKanaHint && (
+                    <button className={styles.reviewHintButton} type="button" onClick={() => onSetHintLevel(3)}>
+                      顯示 2 個假名
                     </button>
                   )}
                   {reviewHintLevel < 3 && reviewWord.wordAudio && (
@@ -279,9 +306,9 @@ export function ReviewPanel({
               )}
               <p className={styles.reviewHintUsed}>
                 {isCloze
-                  ? `本次填空嘗試 ${clozeAnswerAttempts} 次，答案${clozeAnswerCorrect ? "正確" : "未答對"}${reviewHintLevel === 0 ? "，未使用額外提示" : reviewHintLevel === 1 ? "，使用首個假名提示" : "，使用首個假名與音檔提示"}`
+                  ? `本次填空嘗試 ${clozeAnswerAttempts} 次，答案${clozeAnswerCorrect ? "正確" : "未答對"}${reviewHintLevel === 0 ? "，未使用額外提示" : reviewHintLevel === 1 ? "，使用 1 個假名提示" : reviewHintLevel === 2 ? "，使用 2 個假名提示" : "，使用音檔提示"}`
                   : reviewFormat === "zh-to-jp"
-                    ? reviewHintLevel === 0 ? "本次未使用提示" : reviewHintLevel === 1 ? "本次使用：字數提示" : reviewHintLevel === 2 ? "本次使用：首個假名提示" : reviewHintLevel === 3 ? "本次使用：音檔提示" : "本次已查看完整答案"
+                    ? reviewHintLevel === 0 ? "本次未使用提示" : reviewHintLevel === 1 ? "本次使用：字數提示" : reviewHintLevel === 2 ? "本次使用：1 個假名提示" : reviewHintLevel === 3 ? "本次使用：2 個假名或音檔提示" : "本次已查看完整答案"
                   : reviewHintLevel === 3
                     ? "本次已查看中文答案，請依實際回想程度評分"
                     : reviewHintLevel === 2 ? "本次使用：完整日文例句提示" : reviewHintLevel === 1 ? "本次使用：挖空例句提示" : "本次未使用提示"}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import styles from "./home.module.css";
 import { MemoryDataControls } from "./MemoryDataControls";
 import { AppNav } from "../components/AppNav";
@@ -50,16 +51,8 @@ export default function DemoHomePage() {
 
   const dashboard = overview?.dashboard ?? null;
   const chapterProgress = overview?.chapterProgress ?? {};
-  const recommendedHref = overview?.recommendedUnit
-    ? `/?chapter=${overview.recommendedUnit.chapter}&section=${overview.recommendedUnit.section}`
-    : "/units";
+  const router = useRouter();
 
-  const firstChapter = chapters[0];
-  const firstSection = firstChapter?.sections[0];
-  const firstSectionHref = firstChapter && firstSection
-    ? `/?chapter=${firstChapter.number}&section=${firstSection.sectionNumber}`
-    : "/units";
-  const studyHref = dashboard?.reviewedWords ? recommendedHref : firstSectionHref;
   const { recommendation, generatedAt } = useLearningRecommendation({
     scope: "home",
     overview,
@@ -94,7 +87,7 @@ export default function DemoHomePage() {
                 : `已整理 ${totalWords} 個 N4 單字，準備開始第一個單元。`)}
           </p>
         </div>
-        <Link className={styles.primaryButton} href={studyHref}>開始今日學習</Link>
+        <Link className={styles.primaryButton} href="/practice">開始今日學習</Link>
       </section>
 
       {recommendation && (
@@ -102,7 +95,7 @@ export default function DemoHomePage() {
           recommendation={recommendation}
           sourceLabel="本機規則"
           generatedAt={generatedAt}
-          onStart={() => window.location.assign(studyHref)}
+          onStart={() => router.push("/practice")}
           onAskWhy={() => aiChat.open("為什麼推薦這個？")}
         />
       )}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createWordMemory } from "../src/spaced-repetition/fsrs-adapter.ts";
 import { buildPracticeQueue } from "../src/spaced-repetition/practice-queue.ts";
@@ -53,4 +54,14 @@ test("practice session storage round-trips valid sessions and rejects malformed 
     wordRefs: [{ wordId: "word", unitId: "n4-1-1" }, { wordId: "word", unitId: "n4-2-1" }],
   }));
   assert.equal(readPracticeSession(storage), null);
+});
+
+test("practice is a primary route and home starts there", async () => {
+  const nav = await readFile(new URL("../app/components/AppNav.tsx", import.meta.url), "utf8");
+  const home = await readFile(new URL("../app/home/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
+  assert.match(nav, /href: "\/practice"/);
+  assert.match(home, /href="\/practice"/);
+  assert.match(page, /今日推薦/);
+  assert.match(page, /SyncAccountCard/);
 });

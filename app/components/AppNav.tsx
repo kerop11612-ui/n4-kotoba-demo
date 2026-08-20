@@ -1,14 +1,15 @@
 import Link from "next/link";
 import styles from "./AppNav.module.css";
 
-export type AppNavItem = "home" | "library" | "favorites";
+export type AppNavItem = "home" | "practice" | "library" | "favorites";
 
 type AppNavProps = {
   active: AppNavItem;
 };
 
 const items: Array<{ href: string; key: AppNavItem; label: string }> = [
-  { href: "/home", key: "home", label: "首頁" },
+  { href: "/home", key: "home", label: "個人學習" },
+  { href: "/practice", key: "practice", label: "練習" },
   { href: "/", key: "library", label: "單字庫" },
   { href: "/favorites", key: "favorites", label: "收藏" },
 ];

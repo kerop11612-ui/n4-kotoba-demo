@@ -1,5 +1,6 @@
 .nav {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,7 +40,7 @@
 }
 
 .brandText strong {
-  font-family: var(--font-jp, "Noto Serif JP", serif);
+  font-family: var(--font-display, "Noto Serif JP", serif);
   font-size: 17px;
 }
 
@@ -65,7 +66,7 @@
   border-radius: 8px;
   padding: 0 12px;
   color: var(--muted, #655e55);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   text-decoration: none;
   transition: background-color 140ms ease, color 140ms ease;
@@ -85,7 +86,12 @@
 
 @media (max-width: 700px) {
   .nav {
+    flex-wrap: wrap;
     gap: 10px;
+  }
+
+  .brand {
+    flex: 1 1 100%;
   }
 
   .brand {
@@ -107,10 +113,14 @@
   }
 
   .links {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
   }
 
   .link {
+    min-width: 0;
     min-height: 44px;
     padding: 0 8px;
     font-size: 12px;
