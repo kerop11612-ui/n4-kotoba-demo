@@ -3,6 +3,8 @@
 import { useEffect, useRef, type FormEvent } from "react";
 import type { AiChatContext, AiChatMessage } from "../../src/ai/chat.ts";
 import type { AiChatStatus } from "../hooks/useAiChat.ts";
+import { useCodexUsage } from "../hooks/useCodexUsage.ts";
+import { formatCodexUsageLabel } from "./codex-usage-label.ts";
 import styles from "./AiChatDrawer.module.css";
 
 type Props = {
@@ -38,6 +40,9 @@ export function AiChatDrawer({
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const previousChatStatusRef = useRef<AiChatStatus>(status);
+  const { state: codexUsageState, refresh: refreshCodexUsage } = useCodexUsage(open);
+  const usageLabel = formatCodexUsageLabel(codexUsageState.status);
 
   useEffect(() => {
     if (!open) return;
@@ -54,11 +59,19 @@ export function AiChatDrawer({
     };
   }, [onClose, open]);
 
+  useEffect(() => {
+    const previous = previousChatStatusRef.current;
+    previousChatStatusRef.current = status;
+    if (open && previous === "streaming" && status === "ready") {
+      void refreshCodexUsage();
+    }
+  }, [open, refreshCodexUsage, status]);
+
   if (!open) return null;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (status !== "streaming") onSend();
+    if (status !== "streaming" && codexUsageState.status?.connected === true) onSend();
   }
 
   return (
@@ -87,6 +100,9 @@ export function AiChatDrawer({
 
         <p className={styles.context} id="ai-chat-context">
           目前範圍：{context.label}・{context.recentPeriodLabel}
+        </p>
+        <p className={styles.usageStatus} role="status" aria-atomic="true">
+          {usageLabel}
         </p>
 
         <div className={styles.messages} aria-live="polite" aria-busy={status === "streaming"}>
@@ -141,7 +157,13 @@ export function AiChatDrawer({
               ) : status === "error" && messages.some((message) => message.role === "user") ? (
                 <button className={styles.primaryButton} type="button" onClick={onRetry}>重試</button>
               ) : (
-                <button className={styles.primaryButton} type="submit" disabled={!draft.trim()}>送出</button>
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={!draft.trim() || codexUsageState.loading || codexUsageState.status?.connected !== true}
+                >
+                  送出
+                </button>
               )}
             </div>
           </div>

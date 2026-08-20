@@ -1,5 +1,5 @@
 import styles from "../demo.module.css";
-import { calculateMasterySnapshot, getMasteryLabel } from "../../src/spaced-repetition/mastery";
+import { calculateMasterySnapshot, getLearningStatus, getMasteryLabel } from "../../src/spaced-repetition/mastery";
 import type { MasterySnapshot } from "../../src/spaced-repetition/mastery";
 import type { WordMemoryRecord } from "../../src/spaced-repetition/types";
 import { AudioIcon, StarIcon, type AudioStep, renderRuby, type DemoWord } from "./vocabulary";
@@ -16,11 +16,10 @@ type WordCardProps = {
   showExampleTranslation: boolean;
   blurTranslations: boolean;
   isFavorite: boolean;
-  isExampleExpanded: boolean;
+  onToggleManualMastered: (mastered: boolean) => void;
   onPlayVisible: (index: number) => void;
   onPlayOne: (step: AudioStep) => void;
   onToggleFavorite: () => void;
-  onToggleExample: () => void;
 };
 
 export function WordCard({
@@ -35,18 +34,18 @@ export function WordCard({
   showExampleTranslation,
   blurTranslations,
   isFavorite,
-  isExampleExpanded,
+  onToggleManualMastered,
   onPlayVisible,
   onPlayOne,
   onToggleFavorite,
-  onToggleExample,
 }: WordCardProps) {
   const masterySnapshot: MasterySnapshot = calculateMasterySnapshot(memory);
   const masteryLabel = getMasteryLabel(masterySnapshot.masteryPercent, masterySnapshot.reviewCount);
   const masteryText = masterySnapshot.reviewCount < 3 ? masteryLabel : `${masterySnapshot.masteryPercent}%`;
+  const learningStatus = getLearningStatus(memory);
+  const manualMastered = memory?.manualMastered === true;
   const wordStepId = `${word.id}-word`;
   const sentenceStepId = `${word.id}-sentence`;
-  const isExampleLong = word.example.length > 28 || word.exampleZhTw.length > 22;
   const translationHidden = blurTranslations;
   const translationClassName = translationHidden ? styles.translationHidden : "";
 
@@ -82,6 +81,14 @@ export function WordCard({
         >
           <StarIcon filled={isFavorite} />
         </button>
+        <button
+          className={`${styles.manualMasteryButton} ${manualMastered ? styles.manualMasteryButtonActive : ""}`}
+          type="button"
+          aria-pressed={manualMastered}
+          onClick={() => onToggleManualMastered(!manualMastered)}
+        >
+          {manualMastered ? "已學會" : "標記已學會"}
+        </button>
       </div>
 
       {showMeaning ? (
@@ -90,6 +97,7 @@ export function WordCard({
             <p className={`${styles.meaning} ${translationClassName}`}>{word.meaningZhTw}</p>
           </div>
           <div className={styles.meaningMeta}>
+            <span className={styles.wordStatus} data-status={learningStatus}>{learningStatus}</span>
             <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
               30天保持率 {masteryText}
             </span>
@@ -98,6 +106,7 @@ export function WordCard({
         </div>
       ) : (
         <div className={styles.wordNumberOnly}>
+          <span className={styles.wordStatus} data-status={learningStatus}>{learningStatus}</span>
           <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
             30天保持率 {masteryText}
           </span>
@@ -106,23 +115,18 @@ export function WordCard({
       )}
 
       {showExample && (
-        <div className={`${styles.exampleBlock} ${isExampleExpanded ? styles.exampleExpanded : ""}`}>
+        <div className={styles.exampleBlock}>
           <div className={styles.exampleCopy}>
             <p className={styles.exampleJapanese} lang="ja">{renderRuby(word.example)}</p>
             {showExampleTranslation && (
               <div className={styles.translationRevealZone} tabIndex={blurTranslations ? 0 : undefined}>
-                <p className={`${styles.exampleTranslation} ${translationClassName}`} aria-hidden={translationHidden}>
+                    <p className={`${styles.exampleTranslation} ${translationClassName}`}>
                   {word.exampleZhTw}
                 </p>
               </div>
             )}
           </div>
           <div className={styles.exampleActions}>
-            {isExampleLong && (
-              <button className={styles.exampleMore} type="button" onClick={onToggleExample}>
-                {isExampleExpanded ? "收起" : "更多"}
-              </button>
-            )}
             <button
               className={styles.exampleAudio}
               type="button"

@@ -30,14 +30,13 @@ export function createClozeSentence(
   if (visibleTarget) {
     const targetLength = Array.from(visibleTarget).length;
     const ranges: Array<{ sourceStart: number; sourceEnd: number }> = [];
-    let visibleIndex = visible.indexOf(visibleTarget);
-    while (visibleIndex >= 0) {
+    const visibleIndex = visible.indexOf(visibleTarget);
+    if (visibleIndex >= 0) {
       const sourceStart = mapped[visibleIndex]?.sourceStart;
       const sourceEnd = mapped[visibleIndex + targetLength - 1]?.sourceEnd;
       if (sourceStart !== undefined && sourceEnd !== undefined) {
         ranges.push({ sourceStart, sourceEnd });
       }
-      visibleIndex = visible.indexOf(visibleTarget, visibleIndex + targetLength);
     }
     if (ranges.length) {
       let text = sentence;

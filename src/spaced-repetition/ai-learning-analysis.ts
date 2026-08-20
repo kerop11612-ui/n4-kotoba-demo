@@ -226,7 +226,7 @@ export function aggregateLearningAnalysis(
       ? independentCorrect / independentEvents.length
       : lifetimeReviewCount > 0 ? snapshot.independentRecallRatePercent / 100 : 0;
     const hintRate = eventsForMemory.length
-      ? eventsForMemory.filter((event) => event.hintLevel > 0).length / eventsForMemory.length
+      ? eventsForMemory.filter((event) => event.usedHint ?? event.hintLevel > 0).length / eventsForMemory.length
       : lifetimeReviewCount > 0 ? snapshot.hintDependencyPercent / 100 : 0;
     const responseTimes = eventsForMemory.map((event) => event.responseMs).filter(isValidDuration);
     const confusedWordIds = [...new Set(eventsForMemory.flatMap((event) => event.confusedWordIds ?? []))].sort().slice(0, 3);
@@ -263,7 +263,7 @@ export function aggregateLearningAnalysis(
         ? independentEvents.filter((event) => event.correct).length / independentEvents.length
         : 0,
       hintRate: inPeriod.length
-        ? inPeriod.filter((event) => event.hintLevel > 0).length / inPeriod.length
+        ? inPeriod.filter((event) => event.usedHint ?? event.hintLevel > 0).length / inPeriod.length
         : 0,
       averageResponseMs: validResponseTimes.length ? average(validResponseTimes) : 0,
       dueReviewCount: memories.filter((memory) => Date.parse(memory.fsrsCard.due) <= now.getTime()).length,

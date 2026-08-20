@@ -6,6 +6,7 @@ import { AppNav } from "./components/AppNav";
 import { MasterySummary } from "./components/MasterySummary";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { WordCard } from "./components/WordCard";
+import { WordFocusFilter } from "./components/WordFocusFilter";
 import { AudioPlayer } from "./components/AudioPlayer";
 import { LearningToolbar } from "./components/LearningToolbar";
 import { UnitPicker } from "./components/UnitPicker";
@@ -25,6 +26,8 @@ import { useLearningRecommendation } from "./hooks/useLearningRecommendation";
 import { useAiChat } from "./hooks/useAiChat";
 import type { AiChatContext } from "../src/ai/chat";
 import { calculateUnitStats, filterUnitEvidence } from "../src/spaced-repetition/unit-stats";
+import { getLearningStatus, isManualMasteryDue } from "../src/spaced-repetition/mastery";
+import { matchesLearningFilter, type LearningFilter } from "../src/spaced-repetition/learning-filter";
 import { getMemoryKey } from "../src/spaced-repetition/types";
 import { estimateReviewMinutes } from "../src/spaced-repetition/study-session";
 import type { UnitStats } from "../src/spaced-repetition/types";
@@ -44,7 +47,8 @@ export default function DemoPage() {
   const { preferences, setPreferences } = useStudyPreferences();
   const { showMeaning, showReading, showExample, showExampleTranslation, blurTranslations } = preferences;
   const [search, setSearch] = useState("");
-  const [expandedExamples, setExpandedExamples] = useState<Set<string>>(new Set());
+  const [wordFilter, setWordFilter] = useState<LearningFilter>("needs");
+  const [undoManualAction, setUndoManualAction] = useState<{ wordId: string; mastered: boolean; label: string } | null>(null);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false);
   const [showPlayerSettings, setShowPlayerSettings] = useState(false);
 
@@ -60,6 +64,7 @@ export default function DemoPage() {
     setReviewHistory,
     reviewEvents,
     setReviewEvents,
+    setManualMastered,
     error: memoryError,
   } = useUnitMemory(words, selectedChapter, selectedSection, selectionReady);
 
@@ -86,17 +91,57 @@ export default function DemoPage() {
   function selectUnit(chapter: number, section: number) {
     updateUnitSelection(chapter, section);
     setSearch("");
-    stopReview();
+    setWordFilter("needs");
+    discardReview();
   }
 
   const unitWords = useMemo(
     () => selectUnitWords(words, selectedChapter, selectedSection),
     [selectedChapter, selectedSection, words],
   );
-  const visibleWords = useMemo(
-    () => searchVocabulary(unitWords, search),
-    [search, unitWords],
+  const wordFilterCounts = useMemo(() => {
+    const counts: Record<LearningFilter, number> = { needs: 0, all: unitWords.length, learned: 0 };
+    for (const word of unitWords) {
+      const status = getLearningStatus(memoryRecords[getMemoryKey(word.id, "jp_to_meaning")], statsNow);
+      const manualReviewDue = isManualMasteryDue(memoryRecords[getMemoryKey(word.id, "jp_to_meaning")], statsNow);
+      if (matchesLearningFilter(status, "learned") && !manualReviewDue) counts.learned += 1;
+      else counts.needs += 1;
+    }
+    return counts;
+  }, [memoryRecords, statsNow, unitWords]);
+  const filteredUnitWords = useMemo(
+    () => unitWords.filter((word) => matchesLearningFilter(
+      getLearningStatus(memoryRecords[getMemoryKey(word.id, "jp_to_meaning")], statsNow),
+      wordFilter,
+      isManualMasteryDue(memoryRecords[getMemoryKey(word.id, "jp_to_meaning")], statsNow),
+    )),
+    [memoryRecords, statsNow, unitWords, wordFilter],
   );
+  const visibleWords = useMemo(
+    () => searchVocabulary(filteredUnitWords, search),
+    [filteredUnitWords, search],
+  );
+
+  useEffect(() => {
+    if (!undoManualAction) return;
+    const timer = window.setTimeout(() => setUndoManualAction(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [undoManualAction]);
+
+  function handleManualMastery(wordId: string, mastered: boolean, label: string) {
+    const previous = memoryRecords[getMemoryKey(wordId, "jp_to_meaning")]?.manualMastered === true;
+    void setManualMastered(wordId, mastered)
+      .then(() => setUndoManualAction({ wordId, mastered: previous, label }))
+      .catch(() => setMessage("已學會狀態保存失敗，請稍後再試。"));
+  }
+
+  function undoManualMastery() {
+    if (!undoManualAction) return;
+    const action = undoManualAction;
+    void setManualMastered(action.wordId, action.mastered)
+      .then(() => setUndoManualAction(null))
+      .catch(() => setMessage("復原失敗，請稍後再試。"));
+  }
 
   const {
     audioRef,
@@ -136,13 +181,17 @@ export default function DemoPage() {
     reviewWords,
     reviewPreviewCount,
     reviewSummary,
+    reviewResume,
     setReviewFormat,
     setReviewMode,
     setReviewHintLevel,
     setReviewRevealed,
     setClozeAnswer,
 
+    startReview,
     stopReview,
+    resumeReview,
+    discardReview,
     toggleReview,
     checkClozeAnswer,
     rateReview,
@@ -154,6 +203,7 @@ export default function DemoPage() {
     repository,
     selectedChapter,
     selectedSection,
+    reviewHistory,
     setReviewHistory,
     setReviewEvents,
     playOne,
@@ -188,17 +238,6 @@ export default function DemoPage() {
     } : undefined,
   }), [recommendation, selectedChapter, selectedSection, selectedSectionData]);
   const aiChat = useAiChat({ context: chatContext });
-
-
-
-  function toggleExample(id: string) {
-    setExpandedExamples((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
 
   if (indexLoading || unitLoading || !words.length) {
@@ -237,26 +276,18 @@ export default function DemoPage() {
                 </p>
                 <h1>{selectedSectionData?.sectionTitle}</h1>
                 <p className={styles.sectionProgress} aria-label="目前章節掌握進度">
-                  第 {selectedSectionData?.chapterNumber} 章｜第 {selectedSectionData?.sectionNumber} 節｜{unitStats.stableWords}／{unitStats.totalWords} 個｜30 天保持率 {unitStats.masteryPercent}%
+                  第 {selectedSectionData?.chapterNumber} 章｜第 {selectedSectionData?.sectionNumber} 節｜{unitStats.stableWords}／{unitStats.totalWords} 個｜30 天保持率 {unitStats.masteryDataReady ? `${unitStats.masteryPercent}%` : "資料累積中"}
                 </p>
               </div>
               <span className={styles.wordCount}>{visibleWords.length} 詞</span>
             </header>
 
-            <UnitPicker
-              sections={sections}
-              chapterSections={chapterSections}
-              selectedChapter={selectedChapter}
-              selectedSection={selectedSection}
-              onSelectUnit={selectUnit}
-            />
-
-            {unitStats && <MasterySummary stats={unitStats} />}
+            <WordFocusFilter value={wordFilter} counts={wordFilterCounts} onChange={setWordFilter} />
 
             {recommendation && (
               <LearningRecommendationCard
                 recommendation={recommendation}
-                  sourceLabel="本機規則"
+                sourceLabel="本機規則"
                 generatedAt={generatedAt}
                 onStart={toggleReview}
                 onAskWhy={() => aiChat.open("為什麼推薦這個？")}
@@ -267,13 +298,14 @@ export default function DemoPage() {
               search={search}
               onSearchChange={setSearch}
               visibleWordCount={visibleWords.length}
-              totalWordCount={unitWords.length}
+              totalWordCount={filteredUnitWords.length}
               hasVisibleWords={visibleWords.length > 0}
               isPlaylist={isPlaylist}
               reviewing={reviewing}
               memoryReady={memoryReady}
               reviewCount={reviewPreviewCount}
               reviewEstimateMinutes={reviewEstimateMinutes}
+              reviewResume={reviewResume}
               reviewMode={reviewMode}
               reviewFormat={reviewFormat}
               showDisplaySettings={showDisplaySettings}
@@ -282,9 +314,12 @@ export default function DemoPage() {
               showExample={showExample}
               showExampleTranslation={showExampleTranslation}
               blurTranslations={blurTranslations}
+              hasRecommendation={Boolean(recommendation)}
               exportHref={`/print?chapter=${selectedChapter}&section=${selectedSection}${search ? `&q=${encodeURIComponent(search)}` : ""}`}
               onTogglePlaylist={() => (isPlaylist ? stopAudio() : playVisibleWords())}
               onToggleReview={toggleReview}
+              onResumeReview={resumeReview}
+              onRestartReview={startReview}
               onReviewModeChange={setReviewMode}
               onReviewFormatChange={setReviewFormat}
               onToggleDisplaySettings={() => setShowDisplaySettings((open) => !open)}
@@ -294,6 +329,16 @@ export default function DemoPage() {
               onToggleExampleTranslation={() => setPreferences((current) => ({ ...current, showExampleTranslation: !current.showExampleTranslation }))}
               onToggleBlurTranslations={() => setPreferences((current) => ({ ...current, blurTranslations: !current.blurTranslations }))}
             />
+
+            <UnitPicker
+              sections={sections}
+              chapterSections={chapterSections}
+              selectedChapter={selectedChapter}
+              selectedSection={selectedSection}
+              onSelectUnit={selectUnit}
+            />
+
+            {unitStats && <MasterySummary stats={unitStats} />}
           </>
         )}
 
@@ -303,7 +348,7 @@ export default function DemoPage() {
           </p>
         )}
 
-          {blurTranslations && !reviewing && (
+        {blurTranslations && !reviewing && (
           <p className={styles.translationHint}>
             滑鼠移入單字或例句中文翻譯區即可查看答案。
           </p>
@@ -348,21 +393,29 @@ export default function DemoPage() {
               showExampleTranslation={showExampleTranslation}
               blurTranslations={blurTranslations}
               isFavorite={favorites.has(word.id)}
-              isExampleExpanded={expandedExamples.has(word.id)}
+              onToggleManualMastered={(mastered) => handleManualMastery(word.id, mastered, word.word)}
               onPlayVisible={playVisibleWords}
               onPlayOne={playOne}
               onToggleFavorite={() => toggleFavorite(word.id)}
-              onToggleExample={() => toggleExample(word.id)}
             />
           ))}
         </div>}
 
+        {undoManualAction && !reviewing && (
+          <div className={styles.undoToast} role="status">
+            <span>「{undoManualAction.label}」已更新學習狀態。</span>
+            <button type="button" onClick={undoManualMastery}>復原</button>
+          </div>
+        )}
+
         {!visibleWords.length && (
           <div className={styles.emptyState}>
-            <strong>找不到符合的單字</strong>
-            <button type="button" onClick={() => setSearch("")}>
-              清除搜尋
-            </button>
+            <strong>{search ? "找不到符合的單字" : wordFilter === "needs" ? "目前沒有待加強單字" : wordFilter === "learned" ? "還沒有已學會單字" : "目前沒有單字"}</strong>
+            {search ? (
+              <button type="button" onClick={() => setSearch("")}>清除搜尋</button>
+            ) : wordFilter !== "all" ? (
+              <button type="button" onClick={() => setWordFilter("all")}>查看全部單字</button>
+            ) : null}
           </div>
         )}
       </section>
@@ -387,9 +440,9 @@ export default function DemoPage() {
         onAudioRateChange={setAudioRate}
         onRepeatCountChange={setRepeatCount}
       />
-      {!aiChat.isOpen && <AiChatFab onOpen={() => aiChat.open()} />}
-      <AiChatDrawer
-        open={aiChat.isOpen}
+      {!reviewing && !aiChat.isOpen && <AiChatFab onOpen={() => aiChat.open()} />}
+          <AiChatDrawer
+            open={aiChat.isOpen && !reviewing}
         context={chatContext}
         messages={aiChat.messages}
         draft={aiChat.draft}

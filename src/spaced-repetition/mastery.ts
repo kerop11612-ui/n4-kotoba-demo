@@ -10,7 +10,72 @@ export interface MasterySnapshot {
   horizonDays: number;
 }
 
+export type LearningStatus = "尚未練習" | "需要加強" | "學習中" | "已熟悉" | "手動已學會";
+
 const DAY = 86_400_000;
+export const MASTERY_MIN_REVIEWS = 3;
+export const MANUAL_MASTERY_REVIEW_DAYS = 14;
+export const MANUAL_MASTERY_MATURE_REVIEW_DAYS = 30;
+
+export function getLearningStatus(
+  memory: WordMemoryRecord | undefined,
+  now = new Date(),
+): LearningStatus {
+  if (memory?.manualMastered) return "手動已學會";
+  if (!memory || memory.reviewCount <= 0) return "尚未練習";
+  if (isNeedsPractice(memory, now)) return "需要加強";
+  if (memory.reviewCount < MASTERY_MIN_REVIEWS) return "學習中";
+  return calculateMasterySnapshot(memory, now).masteryPercent >= 60 ? "已熟悉" : "學習中";
+}
+
+/** 統一判定已學單字是否應進入待加強／聚焦複習。 */
+export function isNeedsPractice(
+  memory: WordMemoryRecord | undefined,
+  now = new Date(),
+): boolean {
+  if (!Number.isFinite(now.getTime())) return false;
+  if (!memory || !Number.isFinite(memory.reviewCount) || memory.reviewCount <= 0) return false;
+  if (memory.manualMastered && !isManualMasteryDue(memory, now)) return false;
+  if (memory.manualMastered && isManualMasteryDue(memory, now)) return true;
+
+  const dueAt = Date.parse(memory.fsrsCard.due);
+  return (
+    (Number.isFinite(dueAt) && dueAt <= now.getTime())
+    || currentRetrievability(memory, now) < 0.7
+    || memory.lastRawRating === "again"
+    || (memory.lastHintLevel ?? 0) > 0
+    || memory.againStreak > 0
+  );
+}
+
+export function setManualMastery(
+  memory: WordMemoryRecord,
+  mastered: boolean,
+  now = new Date(),
+): WordMemoryRecord {
+  const reviewDays = memory.reviewCount >= MASTERY_MIN_REVIEWS
+    ? MANUAL_MASTERY_MATURE_REVIEW_DAYS
+    : MANUAL_MASTERY_REVIEW_DAYS;
+  return {
+    ...memory,
+    manualMastered: mastered,
+    manualMasteredAt: mastered ? now.toISOString() : null,
+    manualNextReviewAt: mastered
+      ? new Date(now.getTime() + reviewDays * DAY).toISOString()
+      : null,
+    updatedAt: now.toISOString(),
+  };
+}
+
+/** 手動標記的單字只在抽查日重新回到聚焦佇列。 */
+export function isManualMasteryDue(
+  memory: WordMemoryRecord | undefined,
+  now = new Date(),
+): boolean {
+  if (!memory?.manualMastered || !memory.manualNextReviewAt) return false;
+  const dueAt = Date.parse(memory.manualNextReviewAt);
+  return Number.isFinite(dueAt) && dueAt <= now.getTime();
+}
 
 export function calculateMasterySnapshot(
   memory: WordMemoryRecord | undefined,

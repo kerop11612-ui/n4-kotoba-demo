@@ -5,12 +5,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppNav } from "../components/AppNav";
 import { useVocabularyUnit } from "../hooks/useVocabularyUnit";
+import { useUnitMemory } from "../hooks/useUnitMemory";
 import { searchVocabulary } from "../../src/vocabulary/selectors";
+import { getRecentReviewWordIds } from "../../src/spaced-repetition/review-queue";
+import { selectFocusedPrintWords } from "../../src/spaced-repetition/print-recommendation";
 import type { VocabularyWord } from "../../src/vocabulary/types";
 import styles from "./print.module.css";
 
 type PrintMode = "practice" | "study" | "answers";
 type PrintLayout = "two-column" | "single-column";
+type PrintScope = "focused" | "all";
 
 function toPositiveInteger(value: string | null): number {
   const parsed = Number(value);
@@ -30,13 +34,25 @@ function PrintPracticeContent() {
   const query = searchParams.get("q")?.trim() ?? "";
   const enabled = chapter > 0 && section > 0;
   const { words, loading, error } = useVocabularyUnit(chapter, section, enabled);
+  const { memoryRecords, reviewHistory } = useUnitMemory(words, chapter, section, enabled);
   const [mode, setMode] = useState<PrintMode>("practice");
+  const [scope, setScope] = useState<PrintScope>("focused");
   const [showReading, setShowReading] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const [includeAnswerKey, setIncludeAnswerKey] = useState(true);
   const [layout, setLayout] = useState<PrintLayout>("two-column");
 
-  const printWords = useMemo(() => searchVocabulary(words, query), [query, words]);
+  const sourceWords = useMemo(() => searchVocabulary(words, query), [query, words]);
+  const printWords = useMemo(() => {
+    if (scope === "all") return sourceWords;
+    return selectFocusedPrintWords(
+      sourceWords,
+      Object.values(memoryRecords),
+      new Date(),
+      Math.random,
+      getRecentReviewWordIds(reviewHistory, "jp_to_meaning"),
+    );
+  }, [memoryRecords, reviewHistory, scope, sourceWords]);
   const firstWord = words[0];
   const backHref = enabled ? `/?chapter=${chapter}&section=${section}` : "/";
 
@@ -47,6 +63,20 @@ function PrintPracticeContent() {
 
   function handlePrint() {
     window.print();
+  }
+
+  function handleModeChange(nextMode: PrintMode) {
+    setMode(nextMode);
+    if (nextMode === "study") {
+      setShowReading(true);
+      setShowExamples(true);
+    } else if (nextMode === "answers") {
+      setShowReading(true);
+      setShowExamples(false);
+    } else {
+      setShowReading(false);
+      setShowExamples(false);
+    }
   }
 
   return (
@@ -76,16 +106,28 @@ function PrintPracticeContent() {
             <fieldset className={styles.settingsGroup}>
               <legend>列印內容</legend>
               <label className={styles.settingsOption}>
-                <input type="radio" name="print-mode" checked={mode === "practice"} onChange={() => setMode("practice")} />
+                <input type="radio" name="print-mode" checked={mode === "practice"} onChange={() => handleModeChange("practice")} />
                 <span><strong>默寫練習</strong><small>日文→中文、中文→日文</small></span>
               </label>
               <label className={styles.settingsOption}>
-                <input type="radio" name="print-mode" checked={mode === "study"} onChange={() => setMode("study")} />
+                <input type="radio" name="print-mode" checked={mode === "study"} onChange={() => handleModeChange("study")} />
                 <span><strong>學習清單</strong><small>單字、讀音、中文與例句</small></span>
               </label>
               <label className={styles.settingsOption}>
-                <input type="radio" name="print-mode" checked={mode === "answers"} onChange={() => setMode("answers")} />
+                <input type="radio" name="print-mode" checked={mode === "answers"} onChange={() => handleModeChange("answers")} />
                 <span><strong>答案整理</strong><small>快速對照與複習</small></span>
+              </label>
+            </fieldset>
+
+            <fieldset className={styles.settingsGroup}>
+              <legend>本次單字</legend>
+              <label className={styles.settingsOption}>
+                <input type="radio" name="print-scope" checked={scope === "focused"} onChange={() => setScope("focused")} />
+                <span><strong>專注推薦・最多 10 詞</strong><small>優先到期、常忘記與需要提示的單字</small></span>
+              </label>
+              <label className={styles.settingsOption}>
+                <input type="radio" name="print-scope" checked={scope === "all"} onChange={() => setScope("all")} />
+                <span><strong>{query ? "目前搜尋結果" : "整個單元"}</strong><small>{sourceWords.length} 詞，依目前範圍列印</small></span>
               </label>
             </fieldset>
 
@@ -95,10 +137,10 @@ function PrintPracticeContent() {
                 <input type="checkbox" checked={showReading} onChange={(event) => setShowReading(event.target.checked)} />
                 顯示讀音（假名）
               </label>
-              <label className={styles.settingsCheck}>
+              {mode === "study" && <label className={styles.settingsCheck}>
                 <input type="checkbox" checked={showExamples} disabled={mode !== "study"} onChange={(event) => setShowExamples(event.target.checked)} />
                 顯示例句
-              </label>
+              </label>}
               <label className={styles.settingsCheck}>
                 <input type="checkbox" checked={layout === "single-column"} onChange={(event) => setLayout(event.target.checked ? "single-column" : "two-column")} />
                 單欄手寫版
@@ -113,7 +155,7 @@ function PrintPracticeContent() {
           </div>
 
           <p className={styles.settingsStatus} role="status">
-            {query ? `目前列印搜尋結果：「${query}」` : "目前列印整個單元"}・{printModeLabels[mode]}・讀音{showReading ? "顯示" : "隱藏"}
+            {scope === "focused" ? "專注推薦" : query ? `搜尋結果：「${query}」` : "整個單元"}・{printWords.length} 詞・{printModeLabels[mode]}・讀音{showReading ? "顯示" : "隱藏"}・{layout === "single-column" ? "單欄" : "雙欄"}
           </p>
         </section>
       )}

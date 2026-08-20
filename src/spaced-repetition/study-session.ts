@@ -1,6 +1,7 @@
 import type { ReviewFormat, ReviewRating, UnitStats, WordMemoryRecord } from "./types.ts";
 import type { VocabularyChapter } from "../vocabulary/catalog.ts";
 import type { VocabularyIndexItem } from "../vocabulary/types.ts";
+import { getLearningStatus, isManualMasteryDue } from "./mastery.ts";
 
 const DEFAULT_SECONDS_PER_REVIEW = 15;
 
@@ -21,6 +22,10 @@ export type StudyDashboard = {
   reviewedWords: number;
   dueToday: number;
   weakWords: number;
+  needsPracticeWords: number;
+  newWords: number;
+  familiarWords: number;
+  manualMasteredWords: number;
   suggestedNewWords: number;
   estimatedMinutes: number;
 };
@@ -142,39 +147,61 @@ export function buildStudyDashboard(
   now = new Date(),
   newWordLimit = 5,
 ): StudyDashboard {
-  const learned = new Map<string, WordMemoryRecord>();
+  const known = new Map<string, WordMemoryRecord>();
   for (const memory of memories) {
-    if (memory.skill !== "jp_to_meaning" || memory.reviewCount <= 0) continue;
-    const previous = learned.get(memory.wordId);
+    if (memory.skill !== "jp_to_meaning") continue;
+    const previous = known.get(memory.wordId);
     if (!previous || Date.parse(memory.updatedAt) >= Date.parse(previous.updatedAt)) {
-      learned.set(memory.wordId, memory);
+      known.set(memory.wordId, memory);
     }
   }
 
   const dueWordIds = new Set<string>();
   const weakWordIds = new Set<string>();
-  for (const memory of learned.values()) {
-    const dueAt = Date.parse(memory.fsrsCard.due);
-    if (Number.isFinite(dueAt) && dueAt <= now.getTime()) dueWordIds.add(memory.wordId);
-    const independentRate = memory.reviewCount > 0
-      ? memory.independentCorrectCount / memory.reviewCount
-      : 0;
-    if (memory.lapseCount >= 2 || (memory.reviewCount >= 3 && independentRate < 0.6)) {
-      weakWordIds.add(memory.wordId);
+  let familiarWords = 0;
+  let manualMasteredWords = 0;
+  let reviewedWords = 0;
+  let activeNeedsWords = 0;
+  for (const memory of known.values()) {
+    if (memory.reviewCount > 0) reviewedWords += 1;
+    const status = getLearningStatus(memory, now);
+    if (status === "手動已學會") {
+      manualMasteredWords += 1;
+      if (isManualMasteryDue(memory, now)) {
+        activeNeedsWords += 1;
+        dueWordIds.add(memory.wordId);
+      }
+    } else if (status === "已熟悉") {
+      familiarWords += 1;
+    } else if (memory.reviewCount > 0) {
+      const dueAt = Date.parse(memory.fsrsCard.due);
+      const independentRate = memory.reviewCount > 0
+        ? memory.independentCorrectCount / memory.reviewCount
+        : 0;
+      if (Number.isFinite(dueAt) && dueAt <= now.getTime()) dueWordIds.add(memory.wordId);
+      if (memory.lapseCount >= 2 || (memory.reviewCount >= 3 && independentRate < 0.6)) {
+        weakWordIds.add(memory.wordId);
+      }
+      activeNeedsWords += 1;
     }
   }
+  const newWords = Math.max(0, Math.floor(totalWords) - known.size);
+  const needsPracticeWords = newWords + activeNeedsWords;
 
-  const availableNewWords = Math.max(0, Math.floor(totalWords) - learned.size);
   const suggestedNewWords = Math.min(
     Math.max(0, Math.floor(newWordLimit)),
-    availableNewWords,
+    newWords,
   );
   const focusedWordIds = new Set([...dueWordIds, ...weakWordIds]);
 
   return {
-    reviewedWords: learned.size,
+    reviewedWords,
     dueToday: dueWordIds.size,
     weakWords: weakWordIds.size,
+    needsPracticeWords,
+    newWords,
+    familiarWords,
+    manualMasteredWords,
     suggestedNewWords,
     estimatedMinutes: estimateReviewMinutes(focusedWordIds.size + suggestedNewWords),
   };
@@ -253,6 +280,6 @@ export function resolveReviewShortcut(
 ): ReviewShortcut | null {
   if (context.answerVisible) return ratingByCode[code] ?? null;
   if (code === "Space" && context.reviewFormat !== "cloze") return "reveal";
-  if (code === "KeyH" && context.reviewFormat === "jp-to-zh") return "hint";
+  if (code === "KeyH" && context.reviewFormat !== "cloze") return "hint";
   return null;
 }

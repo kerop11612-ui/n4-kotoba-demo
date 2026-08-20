@@ -176,6 +176,18 @@ test("adapter falls back when cache write fails after a valid response", async (
   assert.deepEqual(result.analysis, baseline);
 });
 
+test("learning analysis preserves only the safe ChatGPT login fallback reason", async () => {
+  const model = {
+    async complete() {
+      const error = new Error("codex_chatgpt_login_required");
+      error.code = "codex_chatgpt_login_required";
+      throw error;
+    },
+  };
+  const result = await createLearningAnalysisAdapter({ model, cache: memoryCache() }).analyze(context);
+  assert.equal(result.reason, "codex_chatgpt_login_required");
+});
+
 test("loopback bridge issues an origin-bound session and streams baseline then validated result", async () => {
   const adapter = createLearningAnalysisAdapter({
     model: streamingModel([delta(JSON.stringify(baseline)), done("codex-default")]),

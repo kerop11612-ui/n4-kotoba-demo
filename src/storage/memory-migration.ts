@@ -10,6 +10,7 @@ import type {
   WordMemoryRecord,
 } from "../spaced-repetition/types.ts";
 import { getMemoryKey } from "../spaced-repetition/types.ts";
+import { MANUAL_MASTERY_MATURE_REVIEW_DAYS, MANUAL_MASTERY_REVIEW_DAYS } from "../spaced-repetition/mastery.ts";
 
 export const MEMORY_SCHEMA_VERSION = 2;
 
@@ -37,6 +38,24 @@ export function migrateWordMemoryRecord(
   const base = createWordMemory(wordId, unitId, new Date(createdAt), skill);
   const reviewCount = nonNegative(candidate.reviewCount);
   const fsrsCard = isSerializedCard(candidate.fsrsCard) ? candidate.fsrsCard : base.fsrsCard;
+  const lastRawRating = isReviewRatingOrNull(candidate.lastRawRating) ? candidate.lastRawRating : null;
+  const lastFsrsRating = isFsrsRatingOrNull(candidate.lastFsrsRating) ? candidate.lastFsrsRating : null;
+  const againStreak = candidate.againStreak === undefined
+    ? (lastFsrsRating === 1 || lastRawRating === "again" ? 1 : 0)
+    : Math.min(nonNegative(candidate.againStreak), reviewCount);
+  const manualMastered = candidate.manualMastered === true;
+  const manualMasteredAt = manualMastered
+    ? isoOr(candidate.manualMasteredAt, updatedAt)
+    : null;
+  const manualReviewDays = reviewCount >= 3
+    ? MANUAL_MASTERY_MATURE_REVIEW_DAYS
+    : MANUAL_MASTERY_REVIEW_DAYS;
+  const fallbackManualNextReviewAt = manualMasteredAt
+    ? new Date(Date.parse(manualMasteredAt) + manualReviewDays * 86_400_000).toISOString()
+    : null;
+  const manualNextReviewAt = manualMastered
+    ? isoOr(candidate.manualNextReviewAt, fallbackManualNextReviewAt ?? updatedAt)
+    : null;
 
   return {
     ...candidate,
@@ -49,9 +68,13 @@ export function migrateWordMemoryRecord(
     independentCorrectCount: Math.min(nonNegative(candidate.independentCorrectCount), reviewCount),
     hintedCorrectCount: Math.min(nonNegative(candidate.hintedCorrectCount), reviewCount),
     lapseCount: Math.min(nonNegative(candidate.lapseCount), reviewCount),
+    againStreak,
+    manualMastered,
+    manualMasteredAt,
+    manualNextReviewAt,
     lastHintLevel: isHintLevelOrNull(candidate.lastHintLevel) ? candidate.lastHintLevel : null,
-    lastRawRating: isReviewRatingOrNull(candidate.lastRawRating) ? candidate.lastRawRating : null,
-    lastFsrsRating: isFsrsRatingOrNull(candidate.lastFsrsRating) ? candidate.lastFsrsRating : null,
+    lastRawRating,
+    lastFsrsRating,
     createdAt,
     updatedAt,
   } as WordMemoryRecord;
@@ -102,6 +125,7 @@ export function migrateLegacyReviewState(value: unknown, now = new Date()): Memo
       memory.reviewCount = 1;
       memory.lastRawRating = isReviewRating(item.lastRating) ? item.lastRating : null;
       memory.lastFsrsRating = memory.lastRawRating ? ratingNumber(memory.lastRawRating) : null;
+      memory.againStreak = memory.lastFsrsRating === 1 ? 1 : 0;
       memory.updatedAt = now.toISOString();
     }
     data.memories[getMemoryKey(memory.wordId, memory.skill)] = memory;

@@ -64,12 +64,19 @@ export function AudioPlayer({
         <button className={styles.playerButton} type="button" aria-label="下一個音檔" disabled={audioIndex === audioLength - 1} onClick={onNext}>›</button>
       </div>
       <div className={styles.playerProgressWrap}>
-        <div className={styles.playerProgressMeta}><span>{`${audioIndex + 1} / ${audioLength}`}</span></div>
-        <progress className={styles.playerProgress} value={audioIndex + 1} max={audioLength} aria-label="播放進度" />
+        <div className={styles.playerProgressMeta}><span>{`第 ${audioIndex + 1} / ${audioLength} 項`}</span></div>
+        <progress className={styles.playerProgress} value={audioIndex + 1} max={audioLength} aria-label="播放項目進度" />
       </div>
-      <button className={styles.playerStop} type="button" onClick={onStop}>停止</button>
-      <button className={styles.playerSettingsToggle} type="button" aria-expanded={showPlayerSettings} aria-controls="player-settings-panel" onClick={onToggleSettings}>
-        播放設定 {showPlayerSettings ? "⌃" : "⌄"}
+      <button className={styles.playerStop} type="button" onClick={onStop}>結束播放</button>
+      <button
+        className={styles.playerSettingsToggle}
+        type="button"
+        aria-label={showPlayerSettings ? "收合播放設定" : "展開播放設定"}
+        aria-expanded={showPlayerSettings}
+        aria-controls="player-settings-panel"
+        onClick={onToggleSettings}
+      >
+        播放設定
       </button>
       {showPlayerSettings && (
         <div className={styles.playerSettings} id="player-settings-panel" role="group" aria-label="播放設定">
@@ -97,7 +104,7 @@ export function AudioPlayer({
             </select>
           </label>
           <label className={styles.settingsRate}>
-            <span>連續</span>
+            <span>重複</span>
             <select value={repeatCount} onChange={(event) => onRepeatCountChange(Number(event.target.value) as 1 | 2 | 3)}>
               <option value={1}>1 次</option>
               <option value={2}>2 次</option>

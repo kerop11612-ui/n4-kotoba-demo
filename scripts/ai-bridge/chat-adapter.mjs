@@ -1,4 +1,9 @@
 const MAX_RESPONSE_CHARS = 20_000;
+const SAFE_FALLBACK_REASONS = new Set([
+  "codex_chatgpt_login_required",
+  "aborted",
+  "timeout",
+]);
 
 export function createChatAdapter({
   model,
@@ -58,15 +63,19 @@ export function createChatAdapter({
       } catch (error) {
         yield {
           type: "fallback",
-          reason: error?.name === "AbortError"
-            ? signal?.aborted ? "aborted" : "timeout"
-            : "ai_unavailable",
+          reason: getFallbackReason(error, signal),
         };
       } finally {
         signal?.removeEventListener("abort", forwardAbort);
       }
     },
   };
+}
+
+function getFallbackReason(error, signal) {
+  if (SAFE_FALLBACK_REASONS.has(error?.code)) return error.code;
+  if (error?.name === "AbortError") return signal?.aborted ? "aborted" : "timeout";
+  return "ai_unavailable";
 }
 
 export function buildChatPrompt(request) {

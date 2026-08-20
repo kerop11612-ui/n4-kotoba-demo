@@ -4,103 +4,51 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import type { AudioStep, DemoWord } from "../components/vocabulary";
 import { createClozeSentence, isClozeAnswerCorrect } from "../../src/spaced-repetition/cloze";
 import { createWordMemory, reviewWordMemory } from "../../src/spaced-repetition/fsrs-adapter";
-import { buildReviewQueue, type QueueMode } from "../../src/spaced-repetition/review-queue";
-import { getMemoryKey, type HintLevel, type MemorySkill, type ReviewContext, type ReviewFormat, type ReviewHistoryRecord, type ReviewRating, type VocabularyReviewEvent, type WordMemoryRecord } from "../../src/spaced-repetition/types";
+import { buildReviewQueue, getRecentReviewWordIds, type QueueMode } from "../../src/spaced-repetition/review-queue";
+import { skillForReviewFormat } from "../../src/spaced-repetition/practice-queue";
+import { makePracticeItemId } from "../../src/spaced-repetition/practice-plan";
+import type { PracticeMode, PracticePlanItem } from "../../src/spaced-repetition/practice-plan";
+import { getMemoryKey, type HintLevel, type ReviewContext, type ReviewFormat, type ReviewHistoryRecord, type ReviewRating, type VocabularyReviewEvent, type WordMemoryRecord } from "../../src/spaced-repetition/types";
+import { clearReviewSession, readReviewSession, writeReviewSession, type ReviewSessionStorage, type StoredReviewSession, type StoredReviewSessionResult } from "../../src/spaced-repetition/review-session-storage";
+import { schedulePracticeRetry, scheduleReviewRetry } from "../../src/spaced-repetition/review-session-queue";
 import type { MemoryRepository } from "../../src/storage/memory-repository";
 import { getUnitId } from "../../src/vocabulary/catalog";
 import { resolveReviewShortcut } from "../../src/spaced-repetition/study-session";
+import { didRevealAnswer, didUseManualHint, needsImmediateRetry } from "../../src/spaced-repetition/review-summary";
+import { createLearningEventId } from "../../src/sync/learning-events";
+import type { PracticeWordRef } from "../../src/spaced-repetition/practice-queue";
+import type { StoredPracticeSession } from "../../src/spaced-repetition/practice-session-storage";
 
-function skillForReviewFormat(format: ReviewFormat): MemorySkill {
-  if (format === "zh-to-jp") return "meaning_to_jp";
-  if (format === "cloze") return "context_to_word";
-  return "jp_to_meaning";
-}
-
-export type ReviewSessionResult = {
-  wordId: string;
-  rawRating: ReviewRating;
-  hintLevel: HintLevel;
-  correct: boolean;
-  dueAfter: string;
-};
+export type ReviewSessionResult = StoredReviewSessionResult;
 
 export type ReviewSessionSummary = {
   total: number;
   completed: number;
   correct: number;
   hinted: number;
+  revealed: number;
   ratingCounts: Record<ReviewRating, number>;
   retryWordIds: string[];
   nextReviewAt: string | null;
+  independentCorrect: number;
+  assistedCorrect: number;
+  needsReview: number;
+  byFormat: Record<ReviewFormat, { completed: number; independentCorrect: number; assistedCorrect: number }>;
 };
 
-type StoredReviewSession = {
-  chapter: number;
-  section: number;
-  format: ReviewFormat;
-  mode: QueueMode;
-  wordIds: string[];
-  index: number;
-  results: ReviewSessionResult[];
-};
-
-const REVIEW_SESSION_KEY = "n4-kotoba-active-review-v1";
-
-function isReviewFormat(value: unknown): value is ReviewFormat {
-  return value === "jp-to-zh" || value === "zh-to-jp" || value === "cloze";
-}
-
-function isQueueMode(value: unknown): value is QueueMode {
-  return value === "today" || value === "priority" || value === "unit" || value === "random";
-}
-
-function isReviewRating(value: unknown): value is ReviewRating {
-  return value === "again" || value === "hard" || value === "good" || value === "easy";
-}
-
-function isHintLevel(value: unknown): value is HintLevel {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4;
-}
-
-function isReviewSessionResult(value: unknown): value is ReviewSessionResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const result = value as Partial<ReviewSessionResult>;
-  return (
-    typeof result.wordId === "string" &&
-    isReviewRating(result.rawRating) &&
-    isHintLevel(result.hintLevel) &&
-    typeof result.correct === "boolean" &&
-    typeof result.dueAfter === "string"
-  );
-}
-
-function readStoredReviewSession(): StoredReviewSession | null {
+function getReviewSessionStorage(): ReviewSessionStorage | null {
   try {
-    const raw = window.sessionStorage.getItem(REVIEW_SESSION_KEY);
-    if (!raw) return null;
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const stored = value as Partial<StoredReviewSession>;
-    if (
-      !Number.isInteger(stored.chapter) ||
-      !Number.isInteger(stored.section) ||
-      !isReviewFormat(stored.format) ||
-      !isQueueMode(stored.mode) ||
-      !Array.isArray(stored.wordIds) ||
-      !stored.wordIds.every((wordId) => typeof wordId === "string") ||
-      !Number.isInteger(stored.index) ||
-      !Array.isArray(stored.results) ||
-      !stored.results.every(isReviewSessionResult)
-    ) return null;
-    return stored as StoredReviewSession;
+    return window.localStorage;
   } catch {
     return null;
   }
 }
 
 function clearStoredReviewSession() {
+  const storage = getReviewSessionStorage();
+  if (!storage) return;
   try {
-    window.sessionStorage.removeItem(REVIEW_SESSION_KEY);
+    clearReviewSession(storage);
   } catch {
     // Session recovery is optional; restricted storage should not block learning.
   }
@@ -114,11 +62,22 @@ type ReviewSessionOptions = {
   repository: MemoryRepository | null;
   selectedChapter: number;
   selectedSection: number;
+  reviewHistory: ReviewHistoryRecord[];
   setReviewHistory: Dispatch<SetStateAction<ReviewHistoryRecord[]>>;
   setReviewEvents: Dispatch<SetStateAction<VocabularyReviewEvent[]>>;
   playOne: (step: AudioStep) => void;
   stopAudio: () => void;
   onMessage: (message: string) => void;
+  practiceScope?: PracticeReviewScope;
+};
+
+export type PracticeReviewScope = {
+  mode: PracticeMode;
+  items: PracticePlanItem[];
+  wordRefs?: PracticeWordRef[];
+  readSession: () => StoredPracticeSession | null;
+  writeSession: (session: StoredPracticeSession) => void;
+  clearSession: () => void;
 };
 
 export function useReviewSession({
@@ -129,37 +88,49 @@ export function useReviewSession({
   repository,
   selectedChapter,
   selectedSection,
+  reviewHistory,
   setReviewHistory,
   setReviewEvents,
   playOne,
   stopAudio,
   onMessage,
+  practiceScope,
 }: ReviewSessionOptions) {
   const [reviewing, setReviewing] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewRevealed, setReviewRevealed] = useState(false);
   const [reviewComplete, setReviewComplete] = useState(false);
   const [reviewHintLevel, setReviewHintLevel] = useState<HintLevel>(0);
+  const [reviewHintUsed, setReviewHintUsed] = useState(false);
   const [reviewFormat, setReviewFormat] = useState<ReviewFormat>("jp-to-zh");
   const [clozeAnswer, setClozeAnswer] = useState("");
   const [clozeAnswerAttempts, setClozeAnswerAttempts] = useState(0);
   const [clozeAnswerCorrect, setClozeAnswerCorrect] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [reviewMode, setReviewMode] = useState<QueueMode>("unit");
+  const [reviewMode, setReviewMode] = useState<QueueMode>("focused");
   const [reviewWordIds, setReviewWordIds] = useState<string[]>([]);
+  const [practiceItems, setPracticeItems] = useState<PracticePlanItem[]>([]);
   const [reviewResults, setReviewResults] = useState<ReviewSessionResult[]>([]);
+  const [scheduledRetryWordIds, setScheduledRetryWordIds] = useState<string[]>([]);
+  const [savedReview, setSavedReview] = useState<StoredReviewSession | null>(null);
+  const [savedPractice, setSavedPractice] = useState<StoredPracticeSession | null>(null);
   const isSubmittingRef = useRef(false);
   const reviewStartedAtRef = useRef<number | null>(null);
   const restoreAttemptedRef = useRef(false);
 
   const reviewWords = useMemo(
-    () => (reviewWordIds.length ? reviewWordIds : visibleWords.map((word) => word.id))
+    () => (practiceScope
+      ? practiceItems.map((item) => item.wordId)
+      : (reviewWordIds.length ? reviewWordIds : visibleWords.map((word) => word.id)))
       .map((id) => words.find((word) => word.id === id))
       .filter((word): word is DemoWord => Boolean(word)),
-    [reviewWordIds, visibleWords, words],
+    [practiceItems, practiceScope, reviewWordIds, visibleWords, words],
   );
+  const currentPracticeItem = practiceScope ? practiceItems[reviewIndex] : null;
+  const activeReviewFormat = currentPracticeItem?.format ?? reviewFormat;
 
   const reviewPreviewCount = useMemo(() => {
+    if (practiceScope) return practiceScope.items.length;
     if (!visibleWords.length) return 0;
     const skill = skillForReviewFormat(reviewFormat);
     const candidates = visibleWords.map((word) =>
@@ -170,8 +141,9 @@ export function useReviewSession({
         skill,
       ),
     );
-    return buildReviewQueue(candidates, reviewMode).length;
-  }, [memoryRecords, reviewFormat, reviewMode, selectedChapter, selectedSection, visibleWords]);
+    const recentWordIds = getRecentReviewWordIds(reviewHistory, skill);
+    return buildReviewQueue(candidates, reviewMode, new Date(), Math.random, undefined, recentWordIds).length;
+  }, [memoryRecords, practiceScope, reviewFormat, reviewHistory, reviewMode, selectedChapter, selectedSection, visibleWords]);
 
   const reviewSummary = useMemo<ReviewSessionSummary>(() => {
     const ratingCounts: Record<ReviewRating, number> = {
@@ -185,57 +157,237 @@ export function useReviewSession({
       .map((result) => result.dueAfter)
       .filter((value) => Number.isFinite(Date.parse(value)))
       .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+    const byFormat: ReviewSessionSummary["byFormat"] = {
+      "jp-to-zh": { completed: 0, independentCorrect: 0, assistedCorrect: 0 },
+      "zh-to-jp": { completed: 0, independentCorrect: 0, assistedCorrect: 0 },
+      cloze: { completed: 0, independentCorrect: 0, assistedCorrect: 0 },
+    };
+    for (const result of reviewResults) {
+      const format = result.reviewFormat ?? reviewFormat;
+      byFormat[format].completed += 1;
+      if (result.correct && !result.usedHint && !result.answerRevealed) byFormat[format].independentCorrect += 1;
+      if (result.correct && result.usedHint) byFormat[format].assistedCorrect += 1;
+    }
+    const independentCorrect = reviewResults.filter((result) => result.correct && !result.usedHint && !result.answerRevealed).length;
+    const assistedCorrect = reviewResults.filter((result) => result.correct && Boolean(result.usedHint)).length;
+    const needsReview = new Set(reviewResults.filter(needsImmediateRetry).map((result) => `${result.wordId}:${result.reviewFormat ?? reviewFormat}`)).size;
     return {
       total: reviewWords.length,
       completed: reviewResults.length,
       correct: reviewResults.filter((result) => result.correct).length,
-      hinted: reviewResults.filter((result) => result.hintLevel > 0).length,
+      hinted: reviewResults.filter(didUseManualHint).length,
+      revealed: reviewResults.filter(didRevealAnswer).length,
       ratingCounts,
       retryWordIds: reviewResults
-        .filter((result) => result.rawRating === "again" || result.hintLevel > 0)
+        .filter(needsImmediateRetry)
         .map((result) => result.wordId),
       nextReviewAt,
+      independentCorrect,
+      assistedCorrect,
+      needsReview,
+      byFormat,
     };
-  }, [reviewResults, reviewWords.length]);
+  }, [reviewFormat, reviewResults, reviewWords.length]);
 
   const resetReviewCardState = useCallback(() => {
     setReviewRevealed(false);
     setReviewHintLevel(0);
+    setReviewHintUsed(false);
     setClozeAnswer("");
     setClozeAnswerAttempts(0);
     setClozeAnswerCorrect(null);
     reviewStartedAtRef.current = Date.now();
   }, []);
 
+  const setReviewHintLevelForCard = useCallback((nextLevel: HintLevel | ((level: HintLevel) => HintLevel)) => {
+    setReviewHintLevel((currentLevel) => {
+      const level = typeof nextLevel === "function" ? nextLevel(currentLevel) : nextLevel;
+      const fullAnswerLevel = activeReviewFormat === "zh-to-jp" ? 4 : activeReviewFormat === "jp-to-zh" ? 3 : 0;
+      if (level > 0 && (activeReviewFormat === "cloze" || level < fullAnswerLevel)) {
+        setReviewHintUsed(true);
+      }
+      return level;
+    });
+  }, [activeReviewFormat]);
+
+  function normalizeReviewResult(result: StoredReviewSessionResult, format: ReviewFormat): ReviewSessionResult {
+    const reviewFormatForResult = result.reviewFormat ?? format;
+    return {
+      ...result,
+      reviewFormat: reviewFormatForResult,
+      usedHint: result.usedHint ?? didUseManualHint({ ...result, reviewFormat: reviewFormatForResult }),
+      answerRevealed: result.answerRevealed ?? didRevealAnswer({ ...result, reviewFormat: reviewFormatForResult }),
+    };
+  }
+
   const stopReview = useCallback(() => {
-    clearStoredReviewSession();
     stopAudio();
+    if (reviewComplete) {
+      if (practiceScope) practiceScope.clearSession();
+      else clearStoredReviewSession();
+      setSavedReview(null);
+      setSavedPractice(null);
+    } else if (reviewWordIds.length) {
+      if (practiceScope) {
+      const session: StoredPracticeSession = {
+          version: 2,
+          mode: practiceScope.mode,
+          items: practiceItems,
+          index: reviewIndex,
+          results: reviewResults,
+          retryItemIds: scheduledRetryWordIds,
+        };
+        try {
+          practiceScope.writeSession(session);
+          setSavedPractice(session);
+        } catch {
+          // Session recovery is optional; restricted storage should not block learning.
+        }
+      } else {
+        const session: StoredReviewSession = {
+          chapter: selectedChapter,
+          section: selectedSection,
+          format: reviewFormat,
+          mode: reviewMode,
+          wordIds: reviewWordIds,
+          index: reviewIndex,
+          results: reviewResults,
+          retryWordIds: scheduledRetryWordIds,
+        };
+        const storage = getReviewSessionStorage();
+        if (storage) {
+          try {
+            writeReviewSession(storage, session);
+          } catch {
+            // Session recovery is optional; restricted storage should not block learning.
+          }
+        }
+        setSavedReview(session);
+      }
+    }
     setReviewing(false);
-  }, [stopAudio]);
+  }, [practiceItems, practiceScope, reviewComplete, reviewFormat, reviewIndex, reviewMode, reviewResults, reviewWordIds, scheduledRetryWordIds, selectedChapter, selectedSection, stopAudio]);
+
+  const discardReview = useCallback(() => {
+    if (practiceScope) practiceScope.clearSession();
+    else clearStoredReviewSession();
+    stopAudio();
+    setSavedReview(null);
+    setSavedPractice(null);
+    setReviewWordIds([]);
+    setReviewResults([]);
+    setScheduledRetryWordIds([]);
+    setReviewComplete(false);
+    setReviewing(false);
+  }, [practiceScope, stopAudio]);
 
   const startReview = useCallback(() => {
-    if (!visibleWords.length) return;
-    const skill = skillForReviewFormat(reviewFormat);
-    const candidates = visibleWords.map((word) =>
-      memoryRecords[getMemoryKey(word.id, skill)] ?? createWordMemory(word.id, getUnitId(selectedChapter, selectedSection), new Date(), skill),
-    );
-    const queued = buildReviewQueue(candidates, reviewMode);
+    if (!visibleWords.length && !practiceScope?.items.length) return;
+    let queued: WordMemoryRecord[];
+    if (practiceScope) {
+      queued = practiceScope.items
+        .map((ref) => {
+          const itemSkill = skillForReviewFormat(ref.format);
+          const existing = memoryRecords[getMemoryKey(ref.wordId, itemSkill)];
+          if (existing) return existing;
+          const word = words.find((item) => item.id === ref.wordId);
+          return word
+            ? createWordMemory(word.id, getUnitId(word.chapterNumber, word.sectionNumber), new Date(), itemSkill)
+            : null;
+        })
+        .filter((memory): memory is WordMemoryRecord => Boolean(memory));
+    } else {
+      const skill = skillForReviewFormat(reviewFormat);
+      const candidates = visibleWords.map((word) =>
+        memoryRecords[getMemoryKey(word.id, skill)] ?? createWordMemory(word.id, getUnitId(selectedChapter, selectedSection), new Date(), skill),
+      );
+      const restartWordId = savedReview?.wordIds[savedReview.index];
+      const recentWordIds = getRecentReviewWordIds(reviewHistory, skill);
+      queued = buildReviewQueue(candidates, reviewMode, new Date(), Math.random, restartWordId, recentWordIds);
+    }
     if (!queued.length) {
       onMessage(reviewMode === "today" ? "目前沒有到期單字。" : "目前沒有符合此佇列的單字。");
       return;
     }
+    if (practiceScope) setPracticeItems([...practiceScope.items]);
     setReviewWordIds(queued.map((record) => record.wordId));
     setReviewResults([]);
+    setScheduledRetryWordIds([]);
+    if (practiceScope) practiceScope.clearSession();
+    else clearStoredReviewSession();
+    setSavedReview(null);
     setReviewing(true);
     setReviewIndex(0);
     resetReviewCardState();
     setReviewComplete(false);
     stopAudio();
-  }, [memoryRecords, onMessage, resetReviewCardState, reviewFormat, reviewMode, selectedChapter, selectedSection, stopAudio, visibleWords]);
+  }, [memoryRecords, onMessage, practiceScope, resetReviewCardState, reviewFormat, reviewHistory, reviewMode, savedReview, selectedChapter, selectedSection, stopAudio, visibleWords, words]);
+
+  const resumeReview = useCallback(() => {
+    if (practiceScope) {
+      if (!savedPractice) return;
+      const availableIds = new Set(words.map((word) => word.id));
+      const validItems = savedPractice.items
+        .filter((item) => availableIds.has(item.wordId))
+        .map((item) => {
+          const word = words.find((candidate) => candidate.id === item.wordId);
+          if (item.format !== "cloze" || !word || createClozeSentence(word.example, [word.word, word.reading]).replaced) return item;
+          const format: ReviewFormat = "zh-to-jp";
+          return { ...item, itemId: makePracticeItemId(item.wordId, format), format, skill: skillForReviewFormat(format) };
+        });
+      if (!validItems.length || savedPractice.index < 0 || savedPractice.index >= validItems.length) {
+        discardReview();
+        return;
+      }
+      setPracticeItems(validItems);
+      setReviewFormat(savedPractice.mode === "recommended" ? "jp-to-zh" : savedPractice.mode);
+      setReviewWordIds(validItems.map((item) => item.wordId));
+      const validItemIds = new Set(validItems.map((item) => item.itemId));
+      setScheduledRetryWordIds(savedPractice.retryItemIds.filter((itemId) => validItemIds.has(itemId)));
+      setReviewResults(
+        savedPractice.results
+          .filter((result) => validItems.some((item) => item.wordId === result.wordId))
+          .map((result) => normalizeReviewResult(result, validItems.find((item) => item.wordId === result.wordId)?.format ?? "jp-to-zh")),
+      );
+      setReviewIndex(Math.min(savedPractice.index, validItems.length - 1));
+      setReviewComplete(false);
+      resetReviewCardState();
+      setSavedPractice(null);
+      setReviewing(true);
+      stopAudio();
+      onMessage(`已繼續第 ${savedPractice.index + 1} 題。`);
+      return;
+    }
+    if (!savedReview) return;
+    const availableIds = new Set(words.map((word) => word.id));
+    const validWordIds = savedReview.wordIds.filter((wordId) => availableIds.has(wordId));
+    if (!validWordIds.length || savedReview.index < 0 || savedReview.index >= validWordIds.length) {
+      discardReview();
+      return;
+    }
+    setReviewFormat(savedReview.format);
+    setReviewMode(savedReview.mode);
+    setReviewWordIds(validWordIds);
+    setScheduledRetryWordIds(savedReview.retryWordIds?.filter((wordId) => validWordIds.includes(wordId)) ?? []);
+    setReviewResults(
+      savedReview.results
+        .filter((result) => validWordIds.includes(result.wordId))
+        .map((result) => normalizeReviewResult(result, savedReview.format)),
+    );
+    setReviewIndex(Math.min(savedReview.index, validWordIds.length - 1));
+    setReviewComplete(false);
+    resetReviewCardState();
+    setSavedReview(null);
+    setReviewing(true);
+    stopAudio();
+    onMessage(`已繼續第 ${savedReview.index + 1} 題。`);
+  }, [discardReview, onMessage, practiceScope, resetReviewCardState, savedPractice, savedReview, stopAudio, words]);
 
   useEffect(() => {
+    if (practiceScope) return;
     if (restoreAttemptedRef.current || !words.length || !visibleWords.length) return;
-    const stored = readStoredReviewSession();
+    const storage = getReviewSessionStorage();
+    const stored = storage ? readReviewSession(storage) : null;
     if (!stored || stored.chapter !== selectedChapter || stored.section !== selectedSection) {
       restoreAttemptedRef.current = true;
       return;
@@ -250,21 +402,45 @@ export function useReviewSession({
     const timer = window.setTimeout(() => {
       if (restoreAttemptedRef.current) return;
       restoreAttemptedRef.current = true;
-      setReviewFormat(stored.format);
-      setReviewMode(stored.mode);
-      setReviewWordIds(validWordIds);
-      setReviewResults(stored.results.filter((result) => validWordIds.includes(result.wordId)));
-      setReviewIndex(Math.min(stored.index, validWordIds.length - 1));
-      setReviewComplete(false);
-      resetReviewCardState();
-      setReviewing(true);
-      onMessage("已恢復上次未完成的複習。");
+      setSavedReview({
+        ...stored,
+        wordIds: validWordIds,
+        retryWordIds: stored.retryWordIds?.filter((wordId) => validWordIds.includes(wordId)),
+        results: stored.results
+          .filter((result) => validWordIds.includes(result.wordId))
+          .map((result) => normalizeReviewResult(result, stored.format)),
+      });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [onMessage, resetReviewCardState, selectedChapter, selectedSection, visibleWords.length, words]);
+  }, [onMessage, practiceScope, resetReviewCardState, selectedChapter, selectedSection, visibleWords.length, words]);
 
   useEffect(() => {
-    if (!reviewing || reviewComplete || !reviewWordIds.length) return;
+    if (!practiceScope || restoreAttemptedRef.current || !words.length) return;
+    restoreAttemptedRef.current = true;
+    const stored = practiceScope.readSession();
+    const timer = window.setTimeout(() => {
+      if (stored) setSavedPractice(stored);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [practiceScope, words.length]);
+
+  useEffect(() => {
+    if (reviewComplete || !reviewWordIds.length) return;
+    if (practiceScope) {
+      try {
+        practiceScope.writeSession({
+          version: 2,
+          mode: practiceScope.mode,
+          items: practiceItems,
+          index: Math.min(reviewIndex, practiceItems.length - 1),
+          results: reviewResults,
+          retryItemIds: scheduledRetryWordIds,
+        });
+      } catch {
+        // Session recovery is optional; restricted storage should not block learning.
+      }
+      return;
+    }
     const session: StoredReviewSession = {
       chapter: selectedChapter,
       section: selectedSection,
@@ -273,17 +449,24 @@ export function useReviewSession({
       wordIds: reviewWordIds,
       index: reviewIndex,
       results: reviewResults,
+      retryWordIds: scheduledRetryWordIds,
     };
-    try {
-      window.sessionStorage.setItem(REVIEW_SESSION_KEY, JSON.stringify(session));
-    } catch {
-      // Session recovery is optional; restricted storage should not block learning.
+    const storage = getReviewSessionStorage();
+    if (storage) {
+      try {
+        writeReviewSession(storage, session);
+      } catch {
+        // Session recovery is optional; restricted storage should not block learning.
+      }
     }
-  }, [reviewComplete, reviewFormat, reviewIndex, reviewMode, reviewResults, reviewWordIds, reviewing, selectedChapter, selectedSection]);
+  }, [practiceItems, practiceScope, reviewComplete, reviewFormat, reviewIndex, reviewMode, reviewResults, reviewWordIds, reviewing, scheduledRetryWordIds, selectedChapter, selectedSection]);
 
   useEffect(() => {
-    if (reviewComplete) clearStoredReviewSession();
-  }, [reviewComplete]);
+    if (reviewComplete) {
+      if (practiceScope) practiceScope.clearSession();
+      else clearStoredReviewSession();
+    }
+  }, [practiceScope, reviewComplete]);
 
   const toggleReview = useCallback(() => {
     if (reviewing) stopReview();
@@ -292,51 +475,76 @@ export function useReviewSession({
 
   const checkClozeAnswer = useCallback(() => {
     const reviewWord = reviewWords[reviewIndex];
-    if (!reviewWord || reviewFormat !== "cloze" || clozeAnswerCorrect === true || clozeAnswerAttempts >= 2) return;
+    if (!reviewWord || activeReviewFormat !== "cloze" || clozeAnswerCorrect === true || clozeAnswerAttempts >= 2) return;
     const nextAttempt = clozeAnswerAttempts + 1;
     const correct = isClozeAnswerCorrect(clozeAnswer, reviewWord.word, reviewWord.reading);
     setClozeAnswerAttempts(nextAttempt);
     setClozeAnswerCorrect(correct);
     if (correct || nextAttempt >= 2) setReviewRevealed(true);
-  }, [clozeAnswer, clozeAnswerAttempts, clozeAnswerCorrect, reviewFormat, reviewIndex, reviewWords]);
+  }, [activeReviewFormat, clozeAnswer, clozeAnswerAttempts, clozeAnswerCorrect, reviewIndex, reviewWords]);
 
   const rateReview = useCallback(async (rawRating: ReviewRating) => {
     if (isSubmittingRef.current || !repository || reviewComplete) return;
     const reviewWord = reviewWords[reviewIndex];
-    if (!reviewWord || (reviewFormat === "cloze" && clozeAnswerCorrect === null)) return;
+    if (!reviewWord || (activeReviewFormat === "cloze" && clozeAnswerCorrect === null)) return;
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     const now = new Date();
-    const skill = skillForReviewFormat(reviewFormat);
-    const correct = reviewFormat === "cloze" ? clozeAnswerCorrect === true : rawRating !== "again";
+    const skill = skillForReviewFormat(activeReviewFormat);
+      const correct = activeReviewFormat === "cloze" ? clozeAnswerCorrect === true : rawRating !== "again";
+    const answerRevealed = activeReviewFormat === "cloze"
+      ? clozeAnswerCorrect === true || clozeAnswerAttempts >= 2
+      : reviewRevealed || (activeReviewFormat === "zh-to-jp" ? reviewHintLevel === 4 : reviewHintLevel === 3);
     const previous = memoryRecords[getMemoryKey(reviewWord.id, skill)]
-      ?? createWordMemory(reviewWord.id, getUnitId(selectedChapter, selectedSection), now, skill);
+      ?? createWordMemory(reviewWord.id, getUnitId(reviewWord.chapterNumber, reviewWord.sectionNumber), now, skill);
     const reviewStartedAt = reviewStartedAtRef.current ?? Date.now();
     const responseTimeMs = Math.max(0, Date.now() - reviewStartedAt);
     const reviewContext: ReviewContext = {
-      reviewFormat,
+      eventId: createLearningEventId(),
+      reviewFormat: activeReviewFormat,
       skill,
       correct,
-      recalledWithoutHint: correct && reviewHintLevel === 0 && !(reviewFormat === "cloze" && clozeAnswerAttempts > 1),
+      usedHint: reviewHintUsed,
+      answerRevealed,
+      recalledWithoutHint: correct && reviewHintLevel === 0 && !(activeReviewFormat === "cloze" && clozeAnswerAttempts > 1),
       responseTimeMs,
-      ...(reviewFormat === "cloze"
+      ...(activeReviewFormat === "cloze"
         ? { answerCorrect: clozeAnswerCorrect ?? false, answerAttempts: clozeAnswerAttempts }
         : {}),
     };
     try {
       const result = reviewWordMemory(previous, rawRating, reviewHintLevel, now, responseTimeMs, reviewContext);
       await repository.commitReview(result.memory, result.history, result.event);
+      const shouldRetry = needsImmediateRetry({ rawRating, hintLevel: reviewHintLevel, reviewFormat: activeReviewFormat, usedHint: reviewHintUsed, answerRevealed });
       setReviewResults((results) => [...results, {
         wordId: result.history.wordId,
         rawRating,
         hintLevel: reviewHintLevel,
         correct,
         dueAfter: result.history.dueAfter ?? result.memory.fsrsCard.due,
+        reviewFormat: activeReviewFormat,
+        usedHint: reviewHintUsed,
+        answerRevealed,
       }]);
       setMemoryRecords((records) => ({ ...records, [getMemoryKey(result.memory.wordId, result.memory.skill)]: result.memory }));
       setReviewHistory((history) => [...history.filter((item) => item.id !== result.history.id), result.history]);
       setReviewEvents((events) => [...events.filter((item) => item.id !== result.event.id), result.event]);
-      if (reviewIndex >= reviewWords.length - 1) {
+      let retryScheduled = false;
+      if (practiceScope) {
+        const item = currentPracticeItem;
+        if (item) {
+          const retryPlan = schedulePracticeRetry(practiceItems, reviewIndex, item, shouldRetry, scheduledRetryWordIds);
+          setPracticeItems(retryPlan.items);
+          setScheduledRetryWordIds(retryPlan.retryItemIds);
+          retryScheduled = retryPlan.scheduled;
+        }
+      } else {
+        const retryPlan = scheduleReviewRetry(reviewWordIds, reviewIndex, result.history.wordId, shouldRetry, scheduledRetryWordIds);
+        setReviewWordIds(retryPlan.wordIds);
+        setScheduledRetryWordIds(retryPlan.retryWordIds);
+        retryScheduled = retryPlan.scheduled;
+      }
+      if (reviewIndex >= reviewWords.length - 1 && !retryScheduled) {
         setReviewComplete(true);
       } else {
         setReviewIndex((index) => index + 1);
@@ -348,39 +556,41 @@ export function useReviewSession({
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [clozeAnswerAttempts, clozeAnswerCorrect, memoryRecords, onMessage, repository, resetReviewCardState, reviewComplete, reviewFormat, reviewHintLevel, reviewIndex, reviewWords, selectedChapter, selectedSection, setMemoryRecords, setReviewEvents, setReviewHistory]);
+  }, [activeReviewFormat, clozeAnswerAttempts, clozeAnswerCorrect, currentPracticeItem, memoryRecords, onMessage, practiceItems, practiceScope, repository, resetReviewCardState, reviewComplete, reviewHintLevel, reviewHintUsed, reviewIndex, reviewRevealed, reviewWords, reviewWordIds, scheduledRetryWordIds, setMemoryRecords, setReviewEvents, setReviewHistory]);
 
   useEffect(() => {
     if (!reviewing || reviewComplete) return;
-    if (reviewFormat !== "jp-to-zh" && !reviewRevealed) return;
+    if (activeReviewFormat !== "jp-to-zh" && !reviewRevealed) return;
     const reviewWord = reviewWords[reviewIndex];
     if (!reviewWord?.wordAudio) return;
     playOne({ id: `${reviewWord.id}-word`, label: `${reviewWord.word}・單字`, src: reviewWord.wordAudio });
-  }, [playOne, reviewComplete, reviewFormat, reviewIndex, reviewRevealed, reviewing, reviewWords]);
+  }, [activeReviewFormat, playOne, reviewComplete, reviewIndex, reviewRevealed, reviewing, reviewWords]);
 
   useEffect(() => {
     if (!reviewing || reviewComplete) return;
     function handleReviewShortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT") return;
-      const answerVisible = reviewFormat === "cloze"
+      const answerVisible = activeReviewFormat === "cloze"
         ? clozeAnswerCorrect === true || clozeAnswerAttempts >= 2
-        : reviewRevealed || (reviewFormat === "zh-to-jp" ? reviewHintLevel === 4 : reviewHintLevel === 3);
-      const shortcut = resolveReviewShortcut(event.code, { reviewFormat, answerVisible });
+        : reviewRevealed || (activeReviewFormat === "zh-to-jp" ? reviewHintLevel === 4 : reviewHintLevel === 3);
+      const shortcut = resolveReviewShortcut(event.code, { reviewFormat: activeReviewFormat, answerVisible });
       if (!shortcut) return;
       event.preventDefault();
       if (shortcut === "reveal") {
         setReviewRevealed(true);
-        setReviewHintLevel(reviewFormat === "zh-to-jp" ? 4 : 3);
+        setReviewHintLevelForCard(activeReviewFormat === "zh-to-jp" ? 4 : 3);
         return;
       }
       if (shortcut === "hint") {
         const reviewWord = reviewWords[reviewIndex];
         if (!reviewWord) return;
         const cloze = createClozeSentence(reviewWord.example, [reviewWord.word, reviewWord.reading]);
-        setReviewHintLevel((level) => {
-          const nextLevel: HintLevel = level === 0 ? (cloze.replaced ? 1 : 2) : level === 1 ? 2 : 3;
-          if (nextLevel === 3) setReviewRevealed(true);
+        setReviewHintLevelForCard((level) => {
+          const nextLevel: HintLevel = activeReviewFormat === "zh-to-jp"
+            ? level === 0 ? 1 : level === 1 ? 2 : 3
+            : level === 0 ? (cloze.replaced ? 1 : 2) : level === 1 ? 2 : 3;
+          if (activeReviewFormat === "jp-to-zh" && nextLevel === 3) setReviewRevealed(true);
           return nextLevel;
         });
         return;
@@ -389,13 +599,15 @@ export function useReviewSession({
     }
     window.addEventListener("keydown", handleReviewShortcut);
     return () => window.removeEventListener("keydown", handleReviewShortcut);
-  }, [clozeAnswerAttempts, clozeAnswerCorrect, rateReview, reviewComplete, reviewFormat, reviewHintLevel, reviewIndex, reviewRevealed, reviewWords, reviewing]);
+  }, [activeReviewFormat, clozeAnswerAttempts, clozeAnswerCorrect, rateReview, reviewComplete, reviewHintLevel, reviewIndex, reviewRevealed, reviewWords, reviewing, setReviewHintLevelForCard]);
 
   return {
     reviewing,
     reviewIndex,
     reviewComplete,
     reviewFormat,
+    activeReviewFormat,
+    currentPracticeItem,
     reviewRevealed,
     reviewHintLevel,
     clozeAnswer,
@@ -406,13 +618,22 @@ export function useReviewSession({
     reviewWords,
     reviewPreviewCount,
     reviewSummary,
+    reviewResume: practiceScope
+      ? savedPractice
+        ? { index: savedPractice.index, total: savedPractice.items.length }
+        : null
+      : savedReview
+        ? { index: savedReview.index, total: savedReview.wordIds.length }
+      : null,
     setReviewFormat,
     setReviewMode,
-    setReviewHintLevel,
+    setReviewHintLevel: setReviewHintLevelForCard,
     setReviewRevealed,
     setClozeAnswer,
     startReview,
+    resumeReview,
     stopReview,
+    discardReview,
     toggleReview,
     checkClozeAnswer,
     rateReview,

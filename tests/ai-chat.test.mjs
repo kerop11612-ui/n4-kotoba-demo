@@ -14,6 +14,7 @@ import {
 } from "../app/hooks/useAiChat.ts";
 import { getAiChatDrawerActions } from "../app/components/ai-chat-drawer-actions.ts";
 import { getAiChatFabProps } from "../app/components/ai-chat-fab-actions.ts";
+import { formatCodexUsageLabel } from "../app/components/codex-usage-label.ts";
 
 const context = {
   scope: "home",
@@ -37,6 +38,33 @@ function messageAt(index) {
 }
 
 const twelveMessages = Array.from({ length: 12 }, (_, index) => messageAt(index));
+
+test("Codex usage label includes plan, percent, and Taipei reset time", () => {
+  const label = formatCodexUsageLabel({
+    ok: true,
+    connected: true,
+    usage: {
+      connected: true,
+      authMode: "chatgpt",
+      planType: "pro",
+      primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+      secondary: null,
+      fetchedAt: "2026-08-20T06:00:00.000Z",
+    },
+  }, "zh-TW", "Asia/Taipei");
+  assert.match(label, /Codex Pro/);
+  assert.match(label, /已用 25%/);
+  assert.match(label, /14:30/);
+});
+
+test("Codex usage label explains ChatGPT login requirement", () => {
+  assert.equal(formatCodexUsageLabel({
+    ok: true,
+    connected: false,
+    reason: "codex_chatgpt_login_required",
+    usage: null,
+  }), "請先用 ChatGPT 登入 Codex；本功能不使用 API key。");
+});
 
 test("ChatRequest rejects blank and overlong questions", () => {
   assert.throws(() => buildChatRequest({ context, messages: [], question: "   " }), /question_required/);
@@ -97,10 +125,51 @@ test("default client calls browser fetch with the global receiver", async () => 
   };
   try {
     const client = new LocalAiClient();
-    assert.deepEqual(await client.status(), { ok: true, connected: true });
+    assert.deepEqual(await client.status(), { ok: false, connected: false, reason: "invalid_status", usage: null });
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("LocalAiClient status reports ChatGPT login requirement", async () => {
+  const client = new LocalAiClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      connected: false,
+      reason: "codex_chatgpt_login_required",
+      usage: null,
+    }), { status: 200 }),
+  });
+  assert.deepEqual(await client.status(), {
+    ok: true,
+    connected: false,
+    reason: "codex_chatgpt_login_required",
+    usage: null,
+  });
+});
+
+test("LocalAiClient status parses safe Codex usage fields", async () => {
+  const client = new LocalAiClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: true,
+      connected: true,
+      email: "must-not-survive@example.com",
+      usage: {
+        connected: true,
+        authMode: "chatgpt",
+        planType: "pro",
+        primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+        secondary: null,
+        fetchedAt: "2026-08-20T06:00:00.000Z",
+        accessToken: "must-not-survive",
+      },
+    }), { status: 200 }),
+  });
+  const status = await client.status();
+  assert.equal(status.connected, true);
+  assert.equal(status.usage?.planType, "pro");
+  assert.equal(Object.hasOwn(status, "email"), false);
+  assert.equal(Object.hasOwn(status.usage ?? {}, "accessToken"), false);
 });
 
 function authorizedJson(sessionToken, body) {
@@ -181,6 +250,21 @@ test("chat adapter falls back on incomplete model streams", async () => {
     { type: "delta", text: "部分" },
     { type: "fallback", reason: "ai_unavailable" },
   ]);
+});
+
+test("chat adapter preserves only the safe ChatGPT login fallback reason", async () => {
+  const adapter = createChatAdapter({
+    model: {
+      async complete() {
+        const error = new Error("codex_chatgpt_login_required");
+        error.code = "codex_chatgpt_login_required";
+        throw error;
+      },
+    },
+  });
+  const records = [];
+  for await (const record of adapter.chat(request)) records.push(record);
+  assert.deepEqual(records, [{ type: "fallback", reason: "codex_chatgpt_login_required" }]);
 });
 
 const userMessage = {

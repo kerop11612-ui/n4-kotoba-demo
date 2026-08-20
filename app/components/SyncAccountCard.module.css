@@ -1,0 +1,8 @@
+.card { display: grid; gap: 12px; padding: 20px; border: 1px solid rgba(30, 40, 46, .12); border-radius: 16px; background: rgba(255,255,255,.58); }
+.heading { display: grid; gap: 2px; }
+.eyebrow { margin: 0; color: #68747b; font-size: 12px; letter-spacing: .08em; }
+.form { display: grid; gap: 8px; }
+.form input, .form button, .card > button { min-height: 44px; }
+.form input { width: 100%; padding: 8px 12px; border: 1px solid #aeb8bc; border-radius: 8px; }
+.form button, .card > button { width: fit-content; padding: 8px 16px; border: 0; border-radius: 999px; background: #263f46; color: #fff; }
+.error { margin: 0; color: #a23b32; }

@@ -78,6 +78,18 @@
   overflow-wrap: anywhere;
 }
 
+.usageStatus {
+  margin: 0;
+  border: 1px solid var(--line, #d9d0c4);
+  border-radius: 8px;
+  background: var(--surface-raised, var(--raised, #f7f1e8));
+  padding: 9px 12px;
+  color: var(--muted, #655e55);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .messages {
   min-height: 160px;
   overflow-y: auto;

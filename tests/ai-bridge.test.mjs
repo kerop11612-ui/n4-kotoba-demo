@@ -3,7 +3,12 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import { AppServerClient, createAppServerModel } from "../scripts/ai-bridge/app-server-client.mjs";
+import {
+  normalizeCodexUsage,
+  requireChatGptAccount,
+} from "../scripts/ai-bridge/codex-usage.mjs";
 import { startAiBridgeRuntime } from "../scripts/ai-bridge/runtime.mjs";
+import { startAiBridgeServer } from "../scripts/ai-bridge/server.mjs";
 
 class FakeAppServerProcess extends EventEmitter {
   constructor(onMessage) {
@@ -51,6 +56,25 @@ function successfulFakeProcess() {
     if (message.method === "initialize") {
       process.send({ id: message.id, result: { codexHome: "C:/codex", platformFamily: "windows", platformOs: "windows", userAgent: "codex-test" } }, true);
     }
+    if (message.method === "account/read") {
+      process.send({
+        id: message.id,
+        result: { account: { type: "chatgpt", planType: "pro" }, requiresOpenaiAuth: true },
+      });
+    }
+    if (message.method === "account/rateLimits/read") {
+      process.send({
+        id: message.id,
+        result: {
+          rateLimits: {
+            limitId: "codex",
+            primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: 1787217000 },
+            secondary: null,
+            rateLimitReachedType: null,
+          },
+        },
+      });
+    }
     if (message.method === "thread/start") {
       process.send({ id: message.id, result: { thread: { id: "thread-1" }, model: "codex-default" } });
     }
@@ -63,6 +87,62 @@ function successfulFakeProcess() {
     }
   });
 }
+
+test("Codex usage accepts ChatGPT and exposes only safe rate-limit fields", () => {
+  const accountResult = {
+    account: { type: "chatgpt", email: "hidden@example.com", planType: "pro" },
+    requiresOpenaiAuth: true,
+  };
+  const rateLimitResult = {
+    rateLimits: {
+      limitId: "codex",
+      primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: 1787217000 },
+      secondary: null,
+      rateLimitReachedType: null,
+    },
+    secret: "must-not-leak",
+  };
+  assert.deepEqual(
+    normalizeCodexUsage(accountResult, rateLimitResult, Date.parse("2026-08-20T06:00:00.000Z")),
+    {
+      connected: true,
+      authMode: "chatgpt",
+      planType: "pro",
+      primary: {
+        usedPercent: 25,
+        windowDurationMins: 15,
+        resetsAt: new Date(1787217000 * 1000).toISOString(),
+      },
+      secondary: null,
+      fetchedAt: "2026-08-20T06:00:00.000Z",
+    },
+  );
+});
+
+test("Codex usage rejects API-key and signed-out accounts", () => {
+  assert.throws(
+    () => requireChatGptAccount({ account: { type: "apiKey" }, requiresOpenaiAuth: true }),
+    /codex_chatgpt_login_required/,
+  );
+  assert.throws(
+    () => requireChatGptAccount({ account: null, requiresOpenaiAuth: true }),
+    /codex_chatgpt_login_required/,
+  );
+});
+
+test("Codex usage ignores malformed rate-limit windows", () => {
+  const result = normalizeCodexUsage(
+    { account: { type: "chatgpt", planType: "plus" }, requiresOpenaiAuth: true },
+    {
+      rateLimits: {
+        primary: { usedPercent: "invalid", windowDurationMins: 15, resetsAt: 1787217000 },
+        secondary: null,
+      },
+    },
+    Date.parse("2026-08-20T06:00:00.000Z"),
+  );
+  assert.equal(result.primary, null);
+});
 
 test("AppServerClient streams a signed-in Codex turn without enabling tools", async () => {
   const process = successfulFakeProcess();
@@ -146,6 +226,57 @@ test("App Server model reuses one ephemeral thread for chat turns", async () => 
     { type: "done", model: "codex-default" },
   ]);
   assert.equal(process.messages.filter((message) => message.method === "thread/start").length, 1);
+  assert.equal(process.messages.some((message) => message.method === "account/read"), true);
+  await model.close();
+});
+
+test("App Server model refuses API-key auth before starting a thread", async () => {
+  const process = new FakeAppServerProcess((message, child) => {
+    if (message.method === "initialize") {
+      child.send({ id: message.id, result: { codexHome: "C:/codex" } });
+    }
+    if (message.method === "account/read") {
+      child.send({
+        id: message.id,
+        result: { account: { type: "apiKey" }, requiresOpenaiAuth: true },
+      });
+    }
+  });
+  const client = new AppServerClient({ spawnProcess: () => process });
+  const model = createAppServerModel(client);
+
+  await assert.rejects(
+    () => model.complete({ prompt: "不得使用 API key" }),
+    /codex_chatgpt_login_required/,
+  );
+  assert.equal(process.messages.some((message) => message.method === "thread/start"), false);
+  await model.close();
+});
+
+test("App Server model can retry after ChatGPT login", async () => {
+  let signedIn = false;
+  const process = new FakeAppServerProcess((message, child) => {
+    if (message.method === "initialize") child.send({ id: message.id, result: { codexHome: "C:/codex" } });
+    if (message.method === "account/read") {
+      child.send({
+        id: message.id,
+        result: signedIn
+          ? { account: { type: "chatgpt", planType: "plus" }, requiresOpenaiAuth: true }
+          : { account: null, requiresOpenaiAuth: true },
+      });
+    }
+    if (message.method === "thread/start") {
+      child.send({ id: message.id, result: { thread: { id: "thread-after-login" }, model: "codex-default" } });
+    }
+  });
+  const client = new AppServerClient({ spawnProcess: () => process });
+  const model = createAppServerModel(client);
+
+  await assert.rejects(() => model.complete({ prompt: "第一次" }), /codex_chatgpt_login_required/);
+  signedIn = true;
+  const stream = await model.complete({ prompt: "第二次" });
+  assert.equal(typeof stream[Symbol.asyncIterator], "function");
+  assert.equal(process.messages.filter((message) => message.method === "thread/start").length, 1);
   await model.close();
 });
 
@@ -154,6 +285,17 @@ test("AI bridge runtime sends browser chat through the App Server model", async 
   let closed = false;
   let active = false;
   const client = {
+    async requireChatGptAccount() { return { type: "chatgpt", planType: "pro" }; },
+    async readCodexUsage() {
+      return {
+        connected: true,
+        authMode: "chatgpt",
+        planType: "pro",
+        primary: null,
+        secondary: null,
+        fetchedAt: "2026-08-20T06:00:00.000Z",
+      };
+    },
     async startThread() { return { threadId: "thread-live", model: "codex-default" }; },
     async *runTurn({ input }) {
       if (active) throw new Error("turn_still_active");
@@ -201,4 +343,35 @@ test("AI bridge runtime sends browser chat through the App Server model", async 
     await runtime.close();
   }
   assert.equal(closed, true);
+});
+
+test("AI bridge status exposes safe Codex usage without account secrets", async () => {
+  const bridge = await startAiBridgeServer({
+    port: 0,
+    adapter: { async analyze() { return { source: "baseline", reason: "unused" }; } },
+    usageProvider: {
+      async read() {
+        return {
+          connected: true,
+          authMode: "chatgpt",
+          planType: "pro",
+          primary: { usedPercent: 25, windowDurationMins: 15, resetsAt: "2026-08-20T06:30:00.000Z" },
+          secondary: null,
+          fetchedAt: "2026-08-20T06:00:00.000Z",
+        };
+      },
+    },
+  });
+  try {
+    const response = await fetch(`${bridge.url}/v1/status`, {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.usage.authMode, "chatgpt");
+    assert.equal(JSON.stringify(body).includes("email"), false);
+    assert.equal(JSON.stringify(body).includes("token"), false);
+  } finally {
+    await bridge.close();
+  }
 });
