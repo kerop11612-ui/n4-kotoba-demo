@@ -5,6 +5,7 @@ import { reviewHistoryToLearningEvent, seedLearningEvents } from "../src/sync/le
 import { replayLearningEvents } from "../src/sync/replay-learning-events.ts";
 import { LocalSyncStateStore } from "../src/sync/local-sync-state.ts";
 import { createMemoryRepository } from "../src/storage/repository-factory.ts";
+import { SyncCoordinator } from "../src/sync/sync-coordinator.ts";
 
 test("merged review events are deduplicated and replayed in time order", () => {
   const base = createWordMemory("n4-0001", "n4-1-1", new Date("2026-08-01T00:00:00Z"));
@@ -75,3 +76,121 @@ test("outbox enqueue is idempotent by event id", () => {
   stateStore.enqueue("owner-1", [event, event]);
   assert.equal(stateStore.read("owner-1").outbox.length, 1);
 });
+
+test("failed upload keeps local review in the outbox", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const repository = createMemoryRepository(storage, null, "user:owner");
+  await repository.migrate();
+  const stateStore = new LocalSyncStateStore(storage);
+  const cloud = new FakeCloudEventStore({ uploadError: new Error("offline") });
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", repository);
+  const event = createReviewLearningEvent("local-word", "2026-08-05T00:00:00Z");
+  await coordinator.record(event);
+  await assert.rejects(coordinator.syncNow());
+  assert.deepEqual(stateStore.read("owner").outbox.map((item) => item.id), [event.id]);
+  assert.equal(coordinator.status, "error");
+});
+
+test("successful sync uploads idempotently, pulls pages, and rebuilds local data", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const repository = createMemoryRepository(storage, null, "user:owner");
+  await repository.migrate();
+  const stateStore = new LocalSyncStateStore(storage);
+  const remoteEvent = createReviewLearningEvent("remote-word", "2026-08-04T00:00:00Z");
+  const localEvent = createReviewLearningEvent("local-word", "2026-08-05T00:00:00Z");
+  const cloud = new FakeCloudEventStore({ rows: [{ event: remoteEvent, serverSeq: 1 }] });
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", repository);
+  await coordinator.record(localEvent);
+  await coordinator.syncNow();
+  const data = await repository.exportData();
+  assert.equal(data.history.length, 2);
+  assert.equal(stateStore.read("owner").outbox.length, 0);
+  assert.equal(stateStore.read("owner").lastServerSeq, 1);
+});
+
+test("sync pulls more than one page and advances the server cursor", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const repository = createMemoryRepository(storage, null, "user:owner");
+  await repository.migrate();
+  const rows = Array.from({ length: 501 }, (_, index) => ({
+    event: createReviewLearningEvent(`remote-${index}`, `2026-08-04T00:${String(index % 60).padStart(2, "0")}:00Z`),
+    serverSeq: index + 1,
+  }));
+  const stateStore = new LocalSyncStateStore(storage);
+  const cloud = new FakeCloudEventStore({ rows });
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", repository);
+  assert.equal(stateStore.read("owner").lastServerSeq, 501);
+  assert.equal((await repository.exportData()).history.length, 501);
+});
+
+test("cloud-first reset leaves local data unchanged when deletion fails", async () => {
+  const storageValues = new Map();
+  const storage = {
+    getItem: (key) => storageValues.get(key) ?? null,
+    setItem: (key, value) => storageValues.set(key, value),
+    removeItem: (key) => storageValues.delete(key),
+  };
+  const repository = createMemoryRepository(storage, null, "user:owner");
+  await repository.migrate();
+  const result = reviewWordMemory(createWordMemory("keep", "n4-1-1"), "good", 0, new Date("2026-08-05T00:00:00Z"), 1000, { eventId: "keep-event", reviewFormat: "jp-to-zh" });
+  await repository.commitReview(result.memory, result.history, result.event);
+  const stateStore = new LocalSyncStateStore(storage);
+  const cloud = new FakeCloudEventStore();
+  const coordinator = new SyncCoordinator({ cloud, stateStore, deviceId: "phone" });
+  await coordinator.start("owner", repository);
+  cloud.clearError = new Error("offline");
+  await assert.rejects(coordinator.reset());
+  assert.equal((await repository.exportData()).history.length, 1);
+});
+
+class FakeCloudEventStore {
+  constructor({ rows = [], uploadError = null } = {}) {
+    this.rows = rows;
+    this.uploadError = uploadError;
+    this.clearError = null;
+    this.uploadedIds = [];
+  }
+
+  async upload(_userId, events) {
+    if (this.uploadError) throw this.uploadError;
+    for (const event of events) {
+      if (!this.uploadedIds.includes(event.id)) this.uploadedIds.push(event.id);
+    }
+  }
+
+  async pull(_userId, afterSeq, limit) {
+    return this.rows.filter((row) => row.serverSeq > afterSeq).sort((a, b) => a.serverSeq - b.serverSeq).slice(0, limit);
+  }
+
+  async clear() {
+    if (this.clearError) throw this.clearError;
+    this.rows = [];
+  }
+}
+
+function createReviewLearningEvent(wordId, occurredAt) {
+  const memory = createWordMemory(wordId, "n4-1-1", new Date("2026-08-01T00:00:00Z"));
+  const result = reviewWordMemory(memory, "good", 0, new Date(occurredAt), 1000, {
+    eventId: `event-${wordId}`,
+    reviewFormat: "jp-to-zh",
+  });
+  return reviewHistoryToLearningEvent(result.history, "phone");
+}
