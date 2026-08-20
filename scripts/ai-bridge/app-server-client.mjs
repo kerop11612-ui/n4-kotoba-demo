@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { normalizeCodexUsage, requireChatGptAccount } from "./codex-usage.mjs";
 
 const FORBIDDEN_ITEM_TYPES = new Set([
   "commandExecution",
@@ -49,6 +50,20 @@ export class AppServerClient {
     });
     this.notify("initialized", {});
     this.initialized = true;
+  }
+
+  async requireChatGptAccount() {
+    await this.initialize();
+    const accountResult = await this.request("account/read", { refreshToken: false });
+    return requireChatGptAccount(accountResult);
+  }
+
+  async readCodexUsage() {
+    await this.initialize();
+    const accountResult = await this.request("account/read", { refreshToken: false });
+    requireChatGptAccount(accountResult);
+    const rateLimitResult = await this.request("account/rateLimits/read", {});
+    return normalizeCodexUsage(accountResult, rateLimitResult);
   }
 
   async startThread({ model } = {}) {
@@ -242,9 +257,15 @@ export function createAppServerModel(client) {
   let threadPromise;
   return {
     async complete({ prompt, signal }) {
-      threadPromise ??= client.startThread();
-      const { threadId } = await threadPromise;
-      return client.runTurn({ threadId, input: prompt, signal });
+      await client.requireChatGptAccount();
+      try {
+        threadPromise ??= client.startThread();
+        const { threadId } = await threadPromise;
+        return client.runTurn({ threadId, input: prompt, signal });
+      } catch (error) {
+        threadPromise = undefined;
+        throw error;
+      }
     },
     close: () => client.close(),
   };
