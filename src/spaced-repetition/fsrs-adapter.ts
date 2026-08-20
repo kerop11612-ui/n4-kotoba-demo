@@ -58,6 +58,10 @@ export function createWordMemory(
     independentCorrectCount: 0,
     hintedCorrectCount: 0,
     lapseCount: 0,
+    againStreak: 0,
+    manualMastered: false,
+    manualMasteredAt: null,
+    manualNextReviewAt: null,
     lastHintLevel: null,
     lastRawRating: null,
     lastFsrsRating: null,
@@ -74,7 +78,9 @@ export function reviewWordMemory(
   responseTimeMs?: number,
   reviewContext?: ReviewContext,
 ): { memory: WordMemoryRecord; history: ReviewHistoryRecord; event: VocabularyReviewEvent } {
-  const fsrsRating = mapHintedRating(rawRating, hintLevel);
+  const usedHint = reviewContext?.usedHint ?? hintLevel > 0;
+  const answerRevealed = reviewContext?.answerRevealed ?? false;
+  const fsrsRating = mapHintedRating(rawRating, hintLevel, usedHint);
   const beforeCard = deserializeCard(memory.fsrsCard);
   const beforeRetrievability = memory.reviewCount
     ? safeRetrievability(beforeCard, now)
@@ -87,7 +93,8 @@ export function reviewWordMemory(
     : 0;
   const skill = reviewContext?.skill ?? memory.skill ?? "jp_to_meaning";
   const reviewedAt = now.toISOString();
-  const eventId = `${memory.wordId}:${skill}:${memory.reviewCount + 1}:${memory.updatedAt}`;
+  const eventId = reviewContext?.eventId
+    ?? `${memory.wordId}:${skill}:${memory.reviewCount + 1}:${memory.updatedAt}`;
   const errorTypes = reviewContext?.errorTypes ? [...new Set(reviewContext.errorTypes)] : [];
   const nextMemory: WordMemoryRecord = {
     ...memory,
@@ -97,8 +104,12 @@ export function reviewWordMemory(
     independentCorrectCount:
       memory.independentCorrectCount + (recalledWithoutHint && correct ? 1 : 0),
     hintedCorrectCount:
-      memory.hintedCorrectCount + (hintLevel > 0 && correct ? 1 : 0),
+      memory.hintedCorrectCount + (usedHint && correct ? 1 : 0),
     lapseCount: memory.lapseCount + (fsrsRating === 1 ? 1 : 0),
+    againStreak: fsrsRating === 1 ? memory.againStreak + 1 : 0,
+    manualMastered: fsrsRating === 1 ? false : memory.manualMastered,
+    manualMasteredAt: fsrsRating === 1 ? null : memory.manualMasteredAt ?? null,
+    manualNextReviewAt: fsrsRating === 1 ? null : memory.manualNextReviewAt ?? null,
     lastHintLevel: hintLevel,
     lastRawRating: rawRating,
     lastFsrsRating: fsrsRating,
@@ -116,6 +127,8 @@ export function reviewWordMemory(
     reviewFormat: reviewContext?.reviewFormat,
     answerCorrect: reviewContext?.answerCorrect,
     answerAttempts: reviewContext?.answerAttempts,
+    usedHint,
+    answerRevealed,
     responseTimeMs: safeResponseMs,
     correct,
     recalledWithoutHint,
@@ -139,6 +152,8 @@ export function reviewWordMemory(
     correct,
     recalledWithoutHint,
     hintLevel,
+    usedHint,
+    answerRevealed,
     responseMs: safeResponseMs,
     errorTypes,
     confusedWordIds: reviewContext?.confusedWordIds ?? [],

@@ -31,10 +31,13 @@ export type HintLevel = 0 | 1 | 2 | 3 | 4;
 export type ReviewFormat = "jp-to-zh" | "zh-to-jp" | "cloze";
 
 export interface ReviewContext {
+  eventId?: string;
   reviewFormat: ReviewFormat;
   skill?: MemorySkill;
   answerCorrect?: boolean;
   answerAttempts?: number;
+  usedHint?: boolean;
+  answerRevealed?: boolean;
   correct?: boolean;
   recalledWithoutHint?: boolean;
   responseTimeMs?: number;
@@ -56,6 +59,10 @@ export interface WordMemoryRecord {
   independentCorrectCount: number;
   hintedCorrectCount: number;
   lapseCount: number;
+  againStreak: number;
+  manualMastered: boolean;
+  manualMasteredAt?: string | null;
+  manualNextReviewAt?: string | null;
   lastHintLevel: HintLevel | null;
   lastRawRating: ReviewRating | null;
   lastFsrsRating: 1 | 2 | 3 | 4 | null;
@@ -75,6 +82,8 @@ export interface ReviewHistoryRecord {
   reviewFormat?: ReviewFormat;
   answerCorrect?: boolean;
   answerAttempts?: number;
+  usedHint?: boolean;
+  answerRevealed?: boolean;
   responseTimeMs?: number;
   correct?: boolean;
   recalledWithoutHint?: boolean;
@@ -98,6 +107,8 @@ export interface VocabularyReviewEvent {
   correct: boolean;
   recalledWithoutHint: boolean;
   hintLevel: HintLevel;
+  usedHint?: boolean;
+  answerRevealed?: boolean;
   responseMs: number;
   errorTypes: ReviewErrorType[];
   confusedWordIds?: string[];
@@ -116,6 +127,8 @@ export interface MemoryRepositoryData {
 
 export interface UnitStats {
   masteryPercent: number;
+  masteryReadyWords: number;
+  masteryDataReady: boolean;
   currentRecallPercent: number;
   independentRecallRatePercent: number | null;
   hintDependencyPercent: number | null;
@@ -131,6 +144,13 @@ export interface UnitStats {
   overdue: number;
   independentRecallRate: number | null;
   hintRescueRate: number | null;
+  learningStatusCounts: {
+    "尚未練習": number;
+    "需要加強": number;
+    "學習中": number;
+    "已熟悉": number;
+    "手動已學會": number;
+  };
 }
 
 export type FsrsGrade = Grade;
