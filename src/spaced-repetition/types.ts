@@ -28,6 +28,7 @@ export function getMemoryKey(wordId: string, skill: MemorySkill = "jp_to_meaning
 
 export type ReviewRating = "again" | "hard" | "good" | "easy";
 export type HintLevel = 0 | 1 | 2 | 3 | 4;
+export type HintKind = "sentence-cloze" | "sentence-full" | "length" | "kana-1" | "kana-2" | "audio";
 export type ReviewFormat = "jp-to-zh" | "zh-to-jp" | "cloze";
 
 export interface ReviewContext {
@@ -42,6 +43,7 @@ export interface ReviewContext {
   recalledWithoutHint?: boolean;
   responseTimeMs?: number;
   errorTypes?: ReviewErrorType[];
+  hintKinds?: HintKind[];
   confusedWordIds?: string[];
 }
 
@@ -89,6 +91,7 @@ export interface ReviewHistoryRecord {
   recalledWithoutHint?: boolean;
   errorTypes?: ReviewErrorType[];
   confusedWordIds?: string[];
+  hintKinds?: HintKind[];
   retrievabilityBefore?: number;
   retrievabilityAfter?: number;
   stabilityBefore?: number;
@@ -112,6 +115,7 @@ export interface VocabularyReviewEvent {
   responseMs: number;
   errorTypes: ReviewErrorType[];
   confusedWordIds?: string[];
+  hintKinds?: HintKind[];
   predictedRecallBeforeReview: number;
   fsrsRating: 1 | 2 | 3 | 4;
   reviewCountBefore: number;

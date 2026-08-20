@@ -1,5 +1,6 @@
-import { isManualMasteryDue } from "./mastery.ts";
+import { isManualMasteryDue, isNeedsPractice } from "./mastery.ts";
 import { buildReviewQueue } from "./review-queue.ts";
+import { currentRetrievability } from "./retrievability.ts";
 import type { MemorySkill, ReviewFormat, WordMemoryRecord } from "./types.ts";
 
 export type PracticeWordRef = {
@@ -19,7 +20,9 @@ export function buildPracticeQueue(
   now = new Date(),
   random: () => number = Math.random,
   recentWordIds: readonly string[] = [],
+  includeWeakestEstablishedSkills = false,
 ): PracticeWordRef[] {
+  if (!Number.isFinite(now.getTime())) return [];
   const selectedSkill = skillForReviewFormat(format);
   const byWord = new Map<string, WordMemoryRecord[]>();
   for (const memory of memories) {
@@ -31,16 +34,57 @@ export function buildPracticeQueue(
   const candidates: WordMemoryRecord[] = [];
   for (const records of byWord.values()) {
     const primary = records.find((memory) => memory.skill === "jp_to_meaning");
-    if (!primary || primary.reviewCount <= 0) continue;
-    const selected = records.find((memory) => memory.skill === selectedSkill && memory.reviewCount > 0) ?? primary;
-    const masteredRecord = selected.manualMastered ? selected : primary;
-    if (masteredRecord.manualMastered && !isManualMasteryDue(masteredRecord, now)) continue;
+    if (!primary || !hasLearnedReviewCount(primary)) continue;
+    let selected: WordMemoryRecord;
+    if (includeWeakestEstablishedSkills) {
+      const eligibleRecords = records.filter((memory) => (
+        hasLearnedReviewCount(memory)
+        && (!memory.manualMastered || isManualMasteryDue(memory, now))
+      ));
+      if (!eligibleRecords.some((memory) => memory.skill === "jp_to_meaning")) continue;
+      selected = chooseWeakestEstablishedMemory(eligibleRecords, now);
+    } else {
+      if (isDeferredManualMastery(primary, now)) continue;
+      const requested = records.find((memory) => memory.skill === selectedSkill && hasLearnedReviewCount(memory));
+      if (requested && isDeferredManualMastery(requested, now)) continue;
+      selected = requested ?? primary;
+    }
     candidates.push(selected);
   }
 
   return uniquePracticeRefs(
     buildReviewQueue(candidates, "focused", now, random, undefined, recentWordIds),
   );
+}
+
+function hasLearnedReviewCount(memory: WordMemoryRecord): boolean {
+  return Number.isFinite(memory.reviewCount) && memory.reviewCount > 0;
+}
+
+function isDeferredManualMastery(memory: WordMemoryRecord, now: Date): boolean {
+  return memory.manualMastered && !isManualMasteryDue(memory, now);
+}
+
+function chooseWeakestEstablishedMemory(
+  records: readonly WordMemoryRecord[],
+  now: Date,
+): WordMemoryRecord {
+  return records
+    .filter((memory) => memory.reviewCount > 0)
+    .slice()
+    .sort((a, b) => {
+      const priorityDifference = practicePriority(a, now) - practicePriority(b, now);
+      if (priorityDifference !== 0) return priorityDifference;
+      return currentRetrievability(a, now) - currentRetrievability(b, now);
+    })[0]!;
+}
+
+function practicePriority(memory: WordMemoryRecord, now: Date): number {
+  if (isNeedsPractice(memory, now)) return 0;
+  const recall = currentRetrievability(memory, now);
+  if (recall < 0.7) return 1;
+  if (recall < 0.9) return 2;
+  return 3;
 }
 
 function uniquePracticeRefs(memories: WordMemoryRecord[]): PracticeWordRef[] {

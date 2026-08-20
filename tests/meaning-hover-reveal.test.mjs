@@ -11,4 +11,5 @@ test("word and example translations use independent hover reveal zones", () => {
   assert.match(stylesheet, /\.translationRevealZone:hover \.translationHidden/u);
   assert.match(stylesheet, /\.translationRevealZone:focus-within \.translationHidden/u);
   assert.doesNotMatch(stylesheet, /\.translationHidden:hover/u);
+  assert.doesNotMatch(wordCard, /aria-hidden=\{translationHidden\}/u);
 });

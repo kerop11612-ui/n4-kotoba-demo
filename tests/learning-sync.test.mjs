@@ -23,6 +23,18 @@ test("merged review events are deduplicated and replayed in time order", () => {
   assert.equal(data.history.length, 2);
 });
 
+test("learning event round-trip keeps optional hint kinds", () => {
+  const memory = createWordMemory("hint-sync", "n4-1-1", new Date("2026-08-01T00:00:00Z"));
+  const result = reviewWordMemory(memory, "good", 1, new Date("2026-08-02T00:00:00Z"), 1000, {
+    reviewFormat: "zh-to-jp",
+    correct: true,
+    usedHint: true,
+    hintKinds: ["length", "kana-1"],
+  });
+  const event = reviewHistoryToLearningEvent(result.history, "phone");
+  assert.deepEqual(event.payload.hintKinds, ["length", "kana-1"]);
+});
+
 test("manual mastery and Again follow the merged event timeline", () => {
   const events = [
     { version: 1, id: "manual", deviceId: "phone", type: "manual_mastery", wordId: "n4-0001", unitId: "n4-1-1", skill: "jp_to_meaning", occurredAt: "2026-08-02T00:00:00Z", payload: { mastered: true } },

@@ -12,6 +12,7 @@ type ReviewPanelProps = {
   reviewIndex: number;
   reviewComplete: boolean;
   reviewFormat: ReviewFormat;
+  activeReviewFormat?: ReviewFormat;
   reviewRevealed: boolean;
   reviewHintLevel: HintLevel;
   clozeAnswer: string;
@@ -37,7 +38,8 @@ export function ReviewPanel({
   reviewWords,
   reviewIndex,
   reviewComplete,
-  reviewFormat,
+  reviewFormat: selectedReviewFormat,
+  activeReviewFormat,
   reviewRevealed,
   reviewHintLevel,
   clozeAnswer,
@@ -58,6 +60,7 @@ export function ReviewPanel({
   exitLabel = "暫停",
   completionLabel = "回到單字列表",
 }: ReviewPanelProps) {
+  const reviewFormat = activeReviewFormat ?? selectedReviewFormat;
   const reviewWord = reviewWords[reviewIndex];
   if (!reviewWord) return null;
   const cloze = createClozeSentence(reviewWord.example, [reviewWord.word, reviewWord.reading]);
@@ -141,7 +144,9 @@ export function ReviewPanel({
               <strong>{reviewSummary.hinted} 題</strong>
               <small>查看答案 {reviewSummary.revealed} 題</small>
             </div>
-            <div><span>需要再看</span><strong>{reviewSummary.retryWordIds.length} 題</strong></div>
+            <div><span>獨立答對</span><strong>{reviewSummary.independentCorrect} 題</strong></div>
+            <div><span>提示後完成</span><strong>{reviewSummary.assistedCorrect} 題</strong></div>
+            <div><span>需要再看</span><strong>{reviewSummary.needsReview} 題</strong></div>
             <div><span>下次複習</span><strong>{nextReviewLabel}</strong></div>
           </div>
           <p className={styles.reviewCompleteNote}>
@@ -171,7 +176,6 @@ export function ReviewPanel({
                 </div>
                 {isClozeFallback ? (
                   <>
-                    <p className={styles.reviewFallback}>此例句無法自動挖空，改用中文提示</p>
                     <div className={styles.reviewPromptMeaning}><strong>{reviewWord.meaningZhTw}</strong></div>
                   </>
                 ) : (

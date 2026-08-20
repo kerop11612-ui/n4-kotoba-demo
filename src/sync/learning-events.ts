@@ -18,7 +18,7 @@ type LearningEventBase = {
 
 export type ReviewLearningEvent = LearningEventBase & {
   type: "review";
-  payload: Pick<ReviewHistoryRecord, "rawRating" | "hintLevel" | "answerCorrect" | "answerAttempts" | "usedHint" | "answerRevealed" | "responseTimeMs" | "correct" | "recalledWithoutHint" | "errorTypes" | "confusedWordIds"> & {
+  payload: Pick<ReviewHistoryRecord, "rawRating" | "hintLevel" | "answerCorrect" | "answerAttempts" | "usedHint" | "answerRevealed" | "responseTimeMs" | "correct" | "recalledWithoutHint" | "errorTypes" | "confusedWordIds" | "hintKinds"> & {
     reviewFormat: ReviewFormat;
   };
 };
@@ -64,6 +64,7 @@ export function reviewHistoryToLearningEvent(
       correct: history.correct,
       recalledWithoutHint: history.recalledWithoutHint,
       errorTypes: history.errorTypes,
+      hintKinds: history.hintKinds ? [...history.hintKinds] : undefined,
       confusedWordIds: history.confusedWordIds,
       reviewFormat: history.reviewFormat ?? formatForSkill(skill),
     },

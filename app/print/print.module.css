@@ -35,6 +35,14 @@
   text-decoration: none;
 }
 
+.screenActions button:focus-visible,
+.screenActions a:focus-visible,
+.settingsOption:has(input:focus-visible),
+.settingsCheck:has(input:focus-visible) {
+  outline: 3px solid #17212b;
+  outline-offset: 2px;
+}
+
 .screenActions a {
   border-color: #d7d0c5;
   background: #fffdf8;

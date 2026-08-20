@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildPracticeQueue, skillForReviewFormat, type PracticeWordRef } from "../../src/spaced-repetition/practice-queue";
+import { buildPracticePlan, type PracticeMode } from "../../src/spaced-repetition/practice-plan";
+import { createClozeSentence } from "../../src/spaced-repetition/cloze";
 import { currentRetrievability } from "../../src/spaced-repetition/retrievability";
 import { isManualMasteryDue } from "../../src/spaced-repetition/mastery";
 import { getRecentReviewWordIds } from "../../src/spaced-repetition/review-queue";
@@ -33,7 +35,8 @@ function getCandidateMemory(
 
 export function usePracticeSession() {
   const { repository, authStatus, syncStatus, user, pendingCount } = useLearningData();
-  const [format, setFormat] = useState<ReviewFormat>("jp-to-zh");
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>("recommended");
+  const format: ReviewFormat = practiceMode === "recommended" ? "jp-to-zh" : practiceMode;
   const [memoryRecords, setMemoryRecords] = useState<Record<string, WordMemoryRecord>>({});
   const [reviewHistory, setReviewHistory] = useState<ReviewHistoryRecord[]>([]);
   const [, setReviewEvents] = useState<VocabularyReviewEvent[]>([]);
@@ -73,11 +76,30 @@ export function usePracticeSession() {
     };
   }, [authStatus, repository]);
 
-  const queueRefs = useMemo(() => {
-    const skill = skillForReviewFormat(format);
-    const recentWordIds = getRecentReviewWordIds(reviewHistory, skill);
-    return buildPracticeQueue(Object.values(memoryRecords), format, new Date(), Math.random, recentWordIds);
-  }, [format, memoryRecords, reviewHistory]);
+  const primaryQueueRefs = useMemo(() => {
+    const recentWordIds = getRecentReviewWordIds(reviewHistory, "jp_to_meaning");
+    return buildPracticeQueue(Object.values(memoryRecords), "jp-to-zh", new Date(), Math.random, recentWordIds);
+  }, [memoryRecords, reviewHistory]);
+  const practiceItems = useMemo(() => {
+    const recentWordIds = getRecentReviewWordIds(reviewHistory, skillForReviewFormat(format));
+    return buildPracticePlan(
+      Object.values(memoryRecords),
+      primaryQueueRefs
+        .map((memory) => {
+          const word = queueWords.find((candidate) => candidate.id === memory.wordId);
+          return {
+            wordId: memory.wordId,
+            unitId: memory.unitId,
+            clozeEligible: Boolean(word && createClozeSentence(word.example, [word.word, word.reading]).replaced),
+          };
+        }),
+      practiceMode,
+      new Date(),
+      Math.random,
+      recentWordIds,
+    );
+  }, [format, memoryRecords, practiceMode, primaryQueueRefs, reviewHistory, queueWords]);
+  const queueRefs = primaryQueueRefs;
 
   useEffect(() => {
     if (dataLoading || dataError) return;
@@ -117,9 +139,11 @@ export function usePracticeSession() {
     const storage = getPracticeStorage();
     return {
       wordRefs: queueRefs,
+      items: practiceItems,
+      mode: practiceMode,
       readSession: () => {
         const session = storage ? readPracticeSession(storage) : null;
-        return session?.format === format ? session : null;
+        return session?.mode === practiceMode || (practiceMode !== "recommended" && session?.mode === format) ? session : null;
       },
       writeSession: (session: Parameters<typeof writePracticeSession>[1]) => {
         if (storage) writePracticeSession(storage, session);
@@ -128,7 +152,7 @@ export function usePracticeSession() {
         if (storage) clearPracticeSession(storage);
       },
     };
-  }, [format, queueRefs]);
+  }, [format, practiceItems, practiceMode, queueRefs]);
 
   const audio = useAudioPlayer({ words: queueWords, visibleWords: queueWords, onMessage: () => undefined });
   const review = useReviewSession({
@@ -150,7 +174,7 @@ export function usePracticeSession() {
 
   const applyReviewFormat = review.setReviewFormat;
   const setReviewFormat = useCallback((nextFormat: ReviewFormat) => {
-    setFormat(nextFormat);
+    setPracticeMode(nextFormat);
     applyReviewFormat(nextFormat);
   }, [applyReviewFormat]);
 
@@ -177,6 +201,9 @@ export function usePracticeSession() {
     ...review,
     ...audio,
     format,
+    practiceMode,
+    setPracticeMode,
+    practiceItems,
     setReviewFormat,
     queueRefs,
     queueWords,

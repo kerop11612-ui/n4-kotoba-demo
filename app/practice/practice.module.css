@@ -75,6 +75,10 @@
 }
 
 .formatField { display: grid; gap: 8px; margin-top: 12px; font-weight: 800; }
+.recommendation { max-width: 520px; margin: 10px 0 0; color: var(--muted, #655e55); line-height: 1.6; }
+.customPractice { margin-top: 14px; }
+.customPractice summary { min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; font-weight: 800; }
+.modeNote { display: block; margin-top: 8px; color: var(--muted, #655e55); font-size: 13px; }
 .formatField select {
   min-height: 44px;
   min-width: min(280px, 100%);

@@ -16,6 +16,7 @@ export default function PracticePage() {
     reviewIndex,
     reviewComplete,
     reviewFormat,
+    activeReviewFormat,
     reviewRevealed,
     reviewHintLevel,
     clozeAnswer,
@@ -41,6 +42,7 @@ export default function PracticePage() {
     error,
     empty,
     format,
+    practiceMode,
     setReviewFormat,
     resumeReview,
     startReview,
@@ -60,6 +62,7 @@ export default function PracticePage() {
             reviewIndex={reviewIndex}
             reviewComplete={reviewComplete}
             reviewFormat={reviewFormat}
+            activeReviewFormat={activeReviewFormat}
             reviewRevealed={reviewRevealed}
             reviewHintLevel={reviewHintLevel}
             clozeAnswer={clozeAnswer}
@@ -119,15 +122,20 @@ export default function PracticePage() {
       {!loading && !error && !empty && (
         <section className={styles.actionCard} aria-label="開始今日練習">
           <div>
-            <p className={styles.eyebrow}>練習設定</p>
-            <label className={styles.formatField} htmlFor="practice-format">
-              <span>回想方式</span>
-              <select id="practice-format" value={format} onChange={handleFormatChange}>
-                <option value="jp-to-zh">日文回想中文</option>
-                <option value="zh-to-jp">中文回想日文</option>
-                <option value="cloze">例句填空</option>
-              </select>
-            </label>
+            <p className={styles.eyebrow}>今日最佳練習</p>
+            <p className={styles.recommendation}>包含 {dueCount} 個到期、{weakCount} 個待加強（分類可能重疊），每個單字挑最需要回想的技能。</p>
+            <details className={styles.customPractice}>
+              <summary>自訂練習</summary>
+              <label className={styles.formatField} htmlFor="practice-format">
+                <span>指定回想方式</span>
+                <select id="practice-format" value={format} onChange={handleFormatChange}>
+                  <option value="jp-to-zh">日文回想中文</option>
+                  <option value="zh-to-jp">中文回想日文</option>
+                  <option value="cloze">例句填空</option>
+                </select>
+              </label>
+            </details>
+            <span className={styles.modeNote}>{practiceMode === "recommended" ? "目前使用推薦模式" : "目前使用自訂模式"}</span>
           </div>
           <div className={styles.actionButtons}>
             <button className={styles.primaryButton} type="button" onClick={hasResume ? resumeReview : startReview}>

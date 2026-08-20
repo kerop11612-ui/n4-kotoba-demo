@@ -42,6 +42,7 @@
 
 @media (max-width: 767px) {
   .fab {
+    display: none;
     right: max(14px, env(safe-area-inset-right));
     bottom: calc(82px + env(safe-area-inset-bottom));
   }
