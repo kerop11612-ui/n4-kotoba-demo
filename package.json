@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "lint:app": "eslint app src",
-    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs tests/vocabulary.test.mjs tests/ai-learning-adapter.test.mjs tests/ai-chat.test.mjs tests/ai-bridge.test.mjs tests/meaning-hover-reveal.test.mjs",
+    "test": "node --experimental-strip-types --test tests/spaced-repetition.test.mjs tests/vocabulary.test.mjs tests/ai-learning-adapter.test.mjs tests/ai-chat.test.mjs tests/ai-bridge.test.mjs tests/meaning-hover-reveal.test.mjs tests/focus-layout.test.mjs tests/kana-hint.test.mjs tests/print-recommendation.test.mjs tests/typography-layout.test.mjs tests/sync-contract.test.mjs",
     "test:core": "npm test",
     "check:types": "tsc --noEmit",
     "check:fast": "npm run check:types && npm run lint:app && npm run test:core",
@@ -17,6 +17,7 @@
     "verify": "npm run check && npm run build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "next": "^16.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
