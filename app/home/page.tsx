@@ -11,8 +11,7 @@ import { AiChatFab } from "../components/AiChatFab";
 import { useLearningRecommendation } from "../hooks/useLearningRecommendation";
 import { useAiChat } from "../hooks/useAiChat";
 import type { AiChatContext } from "../../src/ai/chat";
-import type { MemoryRepository } from "../../src/storage/memory-repository";
-import { createMemoryRepository } from "../../src/storage/repository-factory";
+import { useLearningData } from "../hooks/useLearningData";
 import { buildStudyOverview, type StudyOverview } from "../../src/spaced-repetition/study-session";
 import { buildVocabularyChapters } from "../../src/vocabulary/catalog";
 import { useVocabularyIndex } from "../hooks/useVocabularyIndex";
@@ -20,7 +19,7 @@ import { useVocabularyIndex } from "../hooks/useVocabularyIndex";
 export default function DemoHomePage() {
   const { items, totalWords, loading, error: loadError } = useVocabularyIndex();
   const [overview, setOverview] = useState<StudyOverview | null>(null);
-  const [repository] = useState<MemoryRepository>(() => createMemoryRepository());
+  const { repository } = useLearningData();
   const [memoryRevision, setMemoryRevision] = useState(0);
 
   const chapters = useMemo(() => buildVocabularyChapters(items), [items]);
@@ -91,7 +90,7 @@ export default function DemoHomePage() {
             {loading
               ? "正在載入單字庫…"
               : loadError || (dashboard
-                ? `${dashboard.dueToday} 個到期・${dashboard.weakWords} 個弱項・建議 ${dashboard.suggestedNewWords} 個新字`
+                ? `${dashboard.dueToday} 個到期・${dashboard.needsPracticeWords} 個待加強・建議 ${dashboard.suggestedNewWords} 個新字`
                 : `已整理 ${totalWords} 個 N4 單字，準備開始第一個單元。`)}
           </p>
         </div>
@@ -111,7 +110,9 @@ export default function DemoHomePage() {
       <section className={styles.stats} aria-label="單字庫統計">
         {[
           ["今日到期", dashboard ? String(dashboard.dueToday) : "—", "先處理最該複習的字"],
-          ["弱項", dashboard ? String(dashboard.weakWords) : "—", "依錯誤與獨立回想判定"],
+          ["待加強", dashboard ? String(dashboard.needsPracticeWords) : "—", dashboard ? `其中 ${dashboard.weakWords} 個弱項` : "包含新字與學習中"],
+          ["新字", dashboard ? String(dashboard.newWords) : "—", dashboard ? `今日建議 ${dashboard.suggestedNewWords} 個` : "尚未建立學習紀錄"],
+          ["手動已學會", dashboard ? String(dashboard.manualMasteredWords) : "—", "可隨時取消並重新加入練習"],
           ["已學單字", dashboard ? String(dashboard.reviewedWords) : "—", `共 ${totalWords || "—"} 個 N4 單字`],
           ["預估時間", dashboard ? `${dashboard.estimatedMinutes} 分` : "—", "以每題約 15 秒估算"],
         ].map(([label, value, detail]) => (

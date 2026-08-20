@@ -12,3 +12,11 @@ test("learning_events migration is owner-scoped and append-only", async () => {
   assert.match(sql, /for delete/i);
   assert.doesNotMatch(sql, /for update/i);
 });
+
+test("learning data provider wraps the app and unit hooks consume it", async () => {
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const hook = await readFile(new URL("../app/hooks/useUnitMemory.ts", import.meta.url), "utf8");
+  assert.match(layout, /LearningDataProvider/);
+  assert.match(hook, /useLearningData/);
+  assert.doesNotMatch(hook, /createMemoryRepository\(/);
+});

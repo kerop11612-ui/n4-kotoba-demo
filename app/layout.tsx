@@ -1,5 +1,6 @@
 ﻿import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { LearningDataProvider } from "./providers/LearningDataProvider";
 
 export const metadata: Metadata = {
   title: "N4 ことば帳 Demo",
@@ -16,7 +17,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-Hant-TW">
-      <body>{children}</body>
+      <body><LearningDataProvider>{children}</LearningDataProvider></body>
     </html>
   );
 }

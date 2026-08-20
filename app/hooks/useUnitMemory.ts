@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MemoryRepository } from "../../src/storage/memory-repository";
-import { createMemoryRepository } from "../../src/storage/repository-factory";
+import { useLearningData } from "./useLearningData";
 import type { ReviewHistoryRecord, VocabularyReviewEvent, WordMemoryRecord } from "../../src/spaced-repetition/types";
 import { getMemoryKey } from "../../src/spaced-repetition/types";
+import { createWordMemory } from "../../src/spaced-repetition/fsrs-adapter";
+import { setManualMastery } from "../../src/spaced-repetition/mastery";
 import { getUnitId } from "../../src/vocabulary/catalog";
 import type { VocabularyWord } from "../../src/vocabulary/types";
 
@@ -14,7 +16,8 @@ export function useUnitMemory(
   selectedSection: number,
   enabled: boolean,
 ) {
-  const [repository] = useState<MemoryRepository>(() => createMemoryRepository());
+  const { repository } = useLearningData();
+  const repositoryRef = useRef<MemoryRepository | null>(null);
   const migrationRef = useRef<Promise<void> | null>(null);
   const [memoryRecords, setMemoryRecords] = useState<Record<string, WordMemoryRecord>>({});
   const [reviewHistory, setReviewHistory] = useState<ReviewHistoryRecord[]>([]);
@@ -32,6 +35,10 @@ export function useUnitMemory(
     if (!enabled || !unitWords.length) return;
 
     let cancelled = false;
+    if (repositoryRef.current !== repository) {
+      repositoryRef.current = repository;
+      migrationRef.current = null;
+    }
 
     void (async () => {
       try {
@@ -66,6 +73,14 @@ export function useUnitMemory(
     };
   }, [enabled, repository, selectedChapter, selectedSection, unitId, words]);
 
+  const setManualMastered = useCallback(async (wordId: string, mastered: boolean) => {
+    const key = getMemoryKey(wordId, "jp_to_meaning");
+    const current = memoryRecords[key] ?? createWordMemory(wordId, unitId, new Date(), "jp_to_meaning");
+    const next = setManualMastery(current, mastered);
+    await repository.saveWordMemory(next);
+    setMemoryRecords((previous) => ({ ...previous, [key]: next }));
+  }, [memoryRecords, repository, unitId]);
+
   return {
     repository,
     memoryRecords,
@@ -74,6 +89,7 @@ export function useUnitMemory(
     setReviewHistory,
     reviewEvents,
     setReviewEvents,
+    setManualMastered,
     memoryReady: memoryReady && readyUnitId === unitId,
     error: errorUnitId === unitId ? error : "",
   };
