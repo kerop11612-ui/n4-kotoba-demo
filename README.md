@@ -4,9 +4,9 @@
 >
 > A mobile-first JLPT N4 vocabulary learning site with audio, FSRS spaced repetition, adaptive practice, and an optional AI study coach.
 
-[🚀 開啟線上 Demo](https://a7b1c9e2.n4-kotoba-demo.pages.dev/?chapter=1&section=1) · [查看 GitHub 原始碼](https://github.com/kerop11612-ui/n4-kotoba-demo)
+[🚀 開啟線上 Demo](https://a7b1c9e2.n4-kotoba-demo.pages.dev/?chapter=1&section=1) 
 
-![Kotoba N4 網站預覽圖](docs/images/kotoba-n4-preview.png)
+<img width="2217" height="1111" alt="Snipaste_2026-08-25_11-31-06" src="https://github.com/user-attachments/assets/7da6f6ac-e063-493d-bf87-83b2693cc90b" />
 
 ## 專案簡介
 
