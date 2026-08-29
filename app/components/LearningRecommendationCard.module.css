@@ -11,6 +11,10 @@
   box-shadow: 0 8px 24px rgb(87 65 47 / 7%);
 }
 
+.cardWithoutActions {
+  grid-template-columns: 1fr;
+}
+
 .header {
   display: flex;
   grid-column: 1 / -1;

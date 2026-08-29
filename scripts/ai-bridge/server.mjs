@@ -8,13 +8,8 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
 const MAX_BODY_BYTES = 32 * 1024;
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000;
 const CONTEXT_KEYS = ["input", "baseline", "cacheKey", "versions", "shouldCallAi"];
-const CHAT_KEYS = ["context", "messages", "question"];
-const CHAT_CONTEXT_KEYS = ["label", "recentPeriodLabel", "recommendation", "scope", "unitId"];
-const CHAT_RECOMMENDATION_KEYS = ["evidenceLabel", "reason", "title"];
-
 export function startAiBridgeServer({
   adapter,
-  chatAdapter,
   usageProvider,
   host = "127.0.0.1",
   port = 3765,
@@ -24,7 +19,7 @@ export function startAiBridgeServer({
   if (!adapter || typeof adapter.analyze !== "function") throw new Error("adapter_required");
   const sessions = new Map();
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { adapter, chatAdapter, usageProvider, sessions, allowedOrigins, sessionTtlMs });
+    void handleRequest(request, response, { adapter, usageProvider, sessions, allowedOrigins, sessionTtlMs });
   });
   return new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -131,46 +126,6 @@ async function handleRequest(request, response, dependencies) {
     }
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/chat") {
-    const sessionToken = request.headers["x-n4-ai-session"];
-    const session = typeof sessionToken === "string" ? dependencies.sessions.get(sessionToken) : undefined;
-    if (!session || session.origin !== origin || session.expiresAt <= Date.now()) {
-      return sendError(response, 401, "session_required");
-    }
-    if (Number(request.headers["content-length"] ?? 0) > MAX_BODY_BYTES) {
-      return sendError(response, 413, "body_too_large");
-    }
-    if (request.headers["content-type"]?.split(";")[0].trim() !== "application/json") {
-      return sendError(response, 415, "json_required");
-    }
-    try {
-      const chatRequest = await readChatRequest(request);
-      response.writeHead(200, {
-        ...corsHeaders(origin),
-        "Content-Type": "application/x-ndjson; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      if (!dependencies.chatAdapter || typeof dependencies.chatAdapter.chat !== "function") {
-        response.write(`${JSON.stringify({ type: "fallback", reason: "ai_unavailable" })}\n`);
-        response.end();
-        return;
-      }
-      try {
-        for await (const record of dependencies.chatAdapter.chat(chatRequest)) {
-          if (!isChatRecord(record)) throw new Error("invalid_chat_record");
-          response.write(`${JSON.stringify(record)}\n`);
-        }
-      } catch {
-        response.write(`${JSON.stringify({ type: "fallback", reason: "ai_unavailable" })}\n`);
-      }
-      response.end();
-      return;
-    } catch (error) {
-      return sendError(response, error.code === "body_too_large" ? 413 : 400, error.code ?? "invalid_request");
-    }
-  }
-
   sendError(response, 404, "not_found");
 }
 
@@ -228,100 +183,6 @@ async function readContext(request) {
     throw error;
   }
   return value;
-}
-
-async function readChatRequest(request) {
-  const body = await readBody(request);
-  let value;
-  try {
-    value = JSON.parse(body);
-  } catch {
-    const error = new Error("invalid_json");
-    error.code = "invalid_json";
-    throw error;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value) || !hasExactKeys(value, CHAT_KEYS)) {
-    const error = new Error("unknown_chat_field");
-    error.code = "unknown_chat_field";
-    throw error;
-  }
-  const context = value.context;
-  if (!context || typeof context !== "object" || Array.isArray(context)) {
-    const error = new Error("invalid_chat_context");
-    error.code = "invalid_chat_context";
-    throw error;
-  }
-  const contextKeys = Object.keys(context).sort();
-  const allowedContextKeys = CHAT_CONTEXT_KEYS.filter((key) => context[key] !== undefined).sort();
-  if (!contextKeys.every((key) => CHAT_CONTEXT_KEYS.includes(key)) || contextKeys.length !== allowedContextKeys.length) {
-    const error = new Error("unknown_chat_context_field");
-    error.code = "unknown_chat_context_field";
-    throw error;
-  }
-  if ((context.scope !== "home" && context.scope !== "unit")
-    || typeof context.label !== "string"
-    || typeof context.recentPeriodLabel !== "string"
-    || (context.unitId !== undefined && typeof context.unitId !== "string")) {
-    const error = new Error("invalid_chat_context");
-    error.code = "invalid_chat_context";
-    throw error;
-  }
-  let recommendation;
-  if (context.recommendation !== undefined) {
-    recommendation = context.recommendation;
-    if (!recommendation || typeof recommendation !== "object" || Array.isArray(recommendation)
-      || !hasExactKeys(recommendation, CHAT_RECOMMENDATION_KEYS)
-      || CHAT_RECOMMENDATION_KEYS.some((key) => typeof recommendation[key] !== "string")) {
-      const error = new Error("invalid_chat_recommendation");
-      error.code = "invalid_chat_recommendation";
-      throw error;
-    }
-  }
-  if (!Array.isArray(value.messages) || value.messages.length > 6 || value.messages.some((message) => (
-    !message || typeof message !== "object" || Array.isArray(message)
-      || !hasExactKeys(message, ["role", "text"])
-      || (message.role !== "user" && message.role !== "assistant")
-      || typeof message.text !== "string"
-  ))) {
-    const error = new Error("invalid_chat_messages");
-    error.code = "invalid_chat_messages";
-    throw error;
-  }
-  if (typeof value.question !== "string" || !value.question.trim()) {
-    const error = new Error("question_required");
-    error.code = "question_required";
-    throw error;
-  }
-  if ([...value.question.trim()].length > 500) {
-    const error = new Error("question_too_long");
-    error.code = "question_too_long";
-    throw error;
-  }
-  return {
-    context: {
-      scope: context.scope,
-      label: context.label,
-      recentPeriodLabel: context.recentPeriodLabel,
-      ...(context.unitId ? { unitId: context.unitId } : {}),
-      ...(recommendation ? { recommendation: { ...recommendation } } : {}),
-    },
-    messages: value.messages.map(({ role, text }) => ({ role, text })),
-    question: value.question.trim(),
-  };
-}
-
-function hasExactKeys(value, keys) {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-
-function isChatRecord(record) {
-  return Boolean(record && typeof record === "object" && (
-    (record.type === "delta" && typeof record.text === "string")
-    || record.type === "done"
-    || (record.type === "fallback" && typeof record.reason === "string")
-  ));
 }
 
 function readBody(request) {

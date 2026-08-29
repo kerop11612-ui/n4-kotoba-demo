@@ -1,5 +1,4 @@
 import { AppServerClient, createAppServerModel } from "./app-server-client.mjs";
-import { createChatAdapter } from "./chat-adapter.mjs";
 import { createLearningAnalysisAdapter } from "./learning-analysis-adapter.mjs";
 import { startAiBridgeServer } from "./server.mjs";
 
@@ -11,9 +10,8 @@ export async function startAiBridgeRuntime({
   const model = createAppServerModel(client);
   const cache = createMemoryAnalysisCache();
   const adapter = createLearningAnalysisAdapter({ model, cache });
-  const chatAdapter = createChatAdapter({ model });
   const usageProvider = { read: () => client.readCodexUsage() };
-  const bridge = await startAiBridgeServer({ adapter, chatAdapter, usageProvider, host, port });
+  const bridge = await startAiBridgeServer({ adapter, usageProvider, host, port });
   let closed = false;
   return {
     ...bridge,

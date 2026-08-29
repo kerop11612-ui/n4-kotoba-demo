@@ -5,10 +5,9 @@ import styles from "./LearningRecommendationCard.module.css";
 
 type Props = {
   recommendation: LearningRecommendationViewModel;
-  sourceLabel: "本機規則" | "AI 分析" | "快取";
+  sourceLabel: "本機規則";
   generatedAt?: string | null;
-  onStart: () => void;
-  onAskWhy?: () => void;
+  onStart?: () => void;
 };
 
 const actionLabels: Record<LearningRecommendationViewModel["action"], string> = {
@@ -24,7 +23,6 @@ export function LearningRecommendationCard({
   sourceLabel,
   generatedAt = null,
   onStart,
-  onAskWhy,
 }: Props) {
   const confidenceLabel = recommendation.confidencePercent === null
     ? "資料不足"
@@ -32,7 +30,7 @@ export function LearningRecommendationCard({
   const generatedLabel = generatedAt ? formatGeneratedAt(generatedAt) : "剛剛由本機規則產生";
 
   return (
-    <article className={styles.card} aria-labelledby="learning-recommendation-title">
+    <article className={`${styles.card} ${onStart ? "" : styles.cardWithoutActions}`} aria-labelledby="learning-recommendation-title">
       <div className={styles.header}>
         <span className={styles.kicker}>下一步建議</span>
         <span className={styles.source}>{sourceLabel}</span>
@@ -46,16 +44,13 @@ export function LearningRecommendationCard({
           <span>{generatedLabel}</span>
         </div>
       </div>
-      <div className={styles.actions}>
-        <button className={styles.primary} type="button" onClick={onStart}>
-          {actionLabels[recommendation.action]}
-        </button>
-        {onAskWhy && (
-          <button className={styles.secondary} type="button" onClick={onAskWhy}>
-            為什麼推薦？
+      {onStart && (
+        <div className={styles.actions}>
+          <button className={styles.primary} type="button" onClick={onStart}>
+            {actionLabels[recommendation.action]}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </article>
   );
 }

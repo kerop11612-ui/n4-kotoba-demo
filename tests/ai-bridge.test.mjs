@@ -7,7 +7,6 @@ import {
   normalizeCodexUsage,
   requireChatGptAccount,
 } from "../scripts/ai-bridge/codex-usage.mjs";
-import { startAiBridgeRuntime } from "../scripts/ai-bridge/runtime.mjs";
 import { startAiBridgeServer } from "../scripts/ai-bridge/server.mjs";
 
 class FakeAppServerProcess extends EventEmitter {
@@ -278,71 +277,6 @@ test("App Server model can retry after ChatGPT login", async () => {
   assert.equal(typeof stream[Symbol.asyncIterator], "function");
   assert.equal(process.messages.filter((message) => message.method === "thread/start").length, 1);
   await model.close();
-});
-
-test("AI bridge runtime sends browser chat through the App Server model", async () => {
-  const prompts = [];
-  let closed = false;
-  let active = false;
-  const client = {
-    async requireChatGptAccount() { return { type: "chatgpt", planType: "pro" }; },
-    async readCodexUsage() {
-      return {
-        connected: true,
-        authMode: "chatgpt",
-        planType: "pro",
-        primary: null,
-        secondary: null,
-        fetchedAt: "2026-08-20T06:00:00.000Z",
-      };
-    },
-    async startThread() { return { threadId: "thread-live", model: "codex-default" }; },
-    async *runTurn({ input }) {
-      if (active) throw new Error("turn_still_active");
-      active = true;
-      prompts.push(input);
-      try {
-        yield { type: "delta", text: "先複習五分鐘" };
-        yield { type: "done", model: "codex-default" };
-      } finally {
-        active = false;
-      }
-    },
-    async close() { closed = true; },
-  };
-  const runtime = await startAiBridgeRuntime({ client, port: 0 });
-  try {
-    const sessionResponse = await fetch(`${runtime.url}/v1/session`, {
-      method: "POST",
-      headers: { Origin: "http://localhost:3000" },
-    });
-    const { sessionToken } = await sessionResponse.json();
-    const sendChat = async (question) => {
-      const response = await fetch(`${runtime.url}/v1/chat`, {
-        method: "POST",
-        headers: {
-          Origin: "http://localhost:3000",
-          "Content-Type": "application/json",
-          "X-N4-AI-Session": sessionToken,
-        },
-        body: JSON.stringify({
-          context: { scope: "home", label: "全部 N4 單字", recentPeriodLabel: "最近 3 天" },
-          messages: [],
-          question,
-        }),
-      });
-      return (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
-    };
-    const first = await sendChat("我今天該先學什麼？");
-    const second = await sendChat("接著呢？");
-    assert.deepEqual(first.map((record) => record.type), ["delta", "done"]);
-    assert.deepEqual(second.map((record) => record.type), ["delta", "done"]);
-    assert.equal(first[0].text, "先複習五分鐘");
-    assert.match(prompts[0], /我今天該先學什麼/);
-  } finally {
-    await runtime.close();
-  }
-  assert.equal(closed, true);
 });
 
 test("AI bridge status exposes safe Codex usage without account secrets", async () => {

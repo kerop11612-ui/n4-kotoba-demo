@@ -50,7 +50,7 @@ export default function FavoritesPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <Link className={styles.unitMapLink} href="/">開始學習</Link>
+          {validFavoriteIds.size > 0 && <Link className={styles.unitMapLink} href="/">前往單字庫學習</Link>}
         </div>
 
         {message && <p className={styles.notice} role="status">{message}</p>}
@@ -107,7 +107,7 @@ export default function FavoritesPage() {
           <div className={styles.emptyState}>
             <strong>{favoriteIds.size ? "找不到符合的收藏單字" : "還沒有收藏單字"}</strong>
             <span>{favoriteIds.size ? "試試其他搜尋關鍵字。" : "回到單字庫，按下星號即可加入收藏。"}</span>
-            <Link className={styles.favoriteOpenLink} href="/">前往單字庫</Link>
+            <Link className={styles.favoriteOpenLink} href="/">前往單字庫收藏單字</Link>
           </div>
         )}
       </section>

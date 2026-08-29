@@ -11,8 +11,6 @@ import { AudioPlayer } from "./components/AudioPlayer";
 import { LearningToolbar } from "./components/LearningToolbar";
 import { UnitPicker } from "./components/UnitPicker";
 import { LearningRecommendationCard } from "./components/LearningRecommendationCard";
-import { AiChatDrawer } from "./components/AiChatDrawer";
-import { AiChatFab } from "./components/AiChatFab";
 
 import { useFavorites } from "./hooks/useFavorites";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
@@ -23,8 +21,6 @@ import { useUnitSelection } from "./hooks/useUnitSelection";
 import { useVocabularyIndex } from "./hooks/useVocabularyIndex";
 import { useVocabularyUnit } from "./hooks/useVocabularyUnit";
 import { useLearningRecommendation } from "./hooks/useLearningRecommendation";
-import { useAiChat } from "./hooks/useAiChat";
-import type { AiChatContext } from "../src/ai/chat";
 import { calculateUnitStats, filterUnitEvidence } from "../src/spaced-repetition/unit-stats";
 import { getLearningStatus, isManualMasteryDue } from "../src/spaced-repetition/mastery";
 import { matchesLearningFilter, type LearningFilter } from "../src/spaced-repetition/learning-filter";
@@ -224,21 +220,6 @@ export default function DemoPage() {
     scope: "unit",
     unitStats,
   });
-  const chatContext = useMemo<AiChatContext>(() => ({
-    scope: "unit",
-    label: selectedSectionData
-      ? `第 ${selectedSectionData.chapterNumber} 章・${selectedSectionData.sectionTitle}`
-      : `第 ${selectedChapter} 章・第 ${selectedSection} 節`,
-    unitId: `${selectedChapter}-${selectedSection}`,
-    recentPeriodLabel: "最近 3 天",
-    recommendation: recommendation ? {
-      title: recommendation.title,
-      reason: recommendation.reason,
-      evidenceLabel: recommendation.evidenceLabel,
-    } : undefined,
-  }), [recommendation, selectedChapter, selectedSection, selectedSectionData]);
-  const aiChat = useAiChat({ context: chatContext });
-
 
   if (indexLoading || unitLoading || !words.length) {
     return (
@@ -290,7 +271,6 @@ export default function DemoPage() {
                 sourceLabel="本機規則"
                 generatedAt={generatedAt}
                 onStart={toggleReview}
-                onAskWhy={() => aiChat.open("為什麼推薦這個？")}
               />
             )}
 
@@ -439,21 +419,6 @@ export default function DemoPage() {
         onPlaybackModeChange={setPlaybackMode}
         onAudioRateChange={setAudioRate}
         onRepeatCountChange={setRepeatCount}
-      />
-      {!reviewing && !aiChat.isOpen && <AiChatFab onOpen={() => aiChat.open()} />}
-          <AiChatDrawer
-            open={aiChat.isOpen && !reviewing}
-        context={chatContext}
-        messages={aiChat.messages}
-        draft={aiChat.draft}
-        status={aiChat.status}
-        error={aiChat.error}
-        onDraftChange={aiChat.setDraft}
-        onSend={aiChat.send}
-        onStop={aiChat.stop}
-        onRetry={aiChat.retry}
-        onClear={aiChat.clear}
-        onClose={aiChat.close}
       />
     </main>
   );
