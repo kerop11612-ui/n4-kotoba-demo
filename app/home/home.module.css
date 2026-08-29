@@ -21,7 +21,7 @@
 .chapterSection, .recent { margin-top: 56px; }
 .sectionHeading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 14px; }
 .sectionHeading h2 { margin: 7px 0 0; font-size: 26px; }
-.sectionHeading a { color: var(--accent); font-size: 13px; font-weight: 700; text-decoration: none; }
+.sectionHeading a { display: inline-flex; min-height: 44px; align-items: center; color: var(--accent); font-size: 13px; font-weight: 700; text-decoration: none; }
 .chapterList { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
 .chapterRow { display: grid; grid-template-columns: 48px 1fr auto minmax(160px, 240px); align-items: center; gap: 16px; min-height: 68px; border-bottom: 1px dashed var(--soft); padding: 0 20px; color: var(--ink); text-decoration: none; }
 .chapterRow:last-child { border-bottom: 0; }

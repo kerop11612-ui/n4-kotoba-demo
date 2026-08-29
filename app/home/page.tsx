@@ -7,11 +7,7 @@ import styles from "./home.module.css";
 import { MemoryDataControls } from "./MemoryDataControls";
 import { AppNav } from "../components/AppNav";
 import { LearningRecommendationCard } from "../components/LearningRecommendationCard";
-import { AiChatDrawer } from "../components/AiChatDrawer";
-import { AiChatFab } from "../components/AiChatFab";
 import { useLearningRecommendation } from "../hooks/useLearningRecommendation";
-import { useAiChat } from "../hooks/useAiChat";
-import type { AiChatContext } from "../../src/ai/chat";
 import { useLearningData } from "../hooks/useLearningData";
 import { buildStudyOverview, type StudyOverview } from "../../src/spaced-repetition/study-session";
 import { buildVocabularyChapters } from "../../src/vocabulary/catalog";
@@ -57,18 +53,6 @@ export default function DemoHomePage() {
     scope: "home",
     overview,
   });
-  const chatContext = useMemo<AiChatContext>(() => ({
-    scope: "home",
-    label: "全部 N4 單字",
-    recentPeriodLabel: "最近 3 天",
-    recommendation: recommendation ? {
-      title: recommendation.title,
-      reason: recommendation.reason,
-      evidenceLabel: recommendation.evidenceLabel,
-    } : undefined,
-  }), [recommendation]);
-  const aiChat = useAiChat({ context: chatContext });
-
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
@@ -96,7 +80,6 @@ export default function DemoHomePage() {
           sourceLabel="本機規則"
           generatedAt={generatedAt}
           onStart={() => router.push("/practice")}
-          onAskWhy={() => aiChat.open("為什麼推薦這個？")}
         />
       )}
 
@@ -164,21 +147,6 @@ export default function DemoHomePage() {
       </section>
 
       <MemoryDataControls repository={repository} onChanged={() => setMemoryRevision((revision) => revision + 1)} />
-      {!aiChat.isOpen && <AiChatFab onOpen={() => aiChat.open()} />}
-      <AiChatDrawer
-        open={aiChat.isOpen}
-        context={chatContext}
-        messages={aiChat.messages}
-        draft={aiChat.draft}
-        status={aiChat.status}
-        error={aiChat.error}
-        onDraftChange={aiChat.setDraft}
-        onSend={aiChat.send}
-        onStop={aiChat.stop}
-        onRetry={aiChat.retry}
-        onClear={aiChat.clear}
-        onClose={aiChat.close}
-      />
     </main>
   );
 }

@@ -1100,6 +1100,7 @@
 .favoriteOpenLink {
   display: inline-flex;
   align-items: center;
+  min-height: 44px;
   margin: 0 17px 16px;
   color: var(--accent);
   font-size: 12px;

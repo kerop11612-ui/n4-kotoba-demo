@@ -1,5 +1,4 @@
 import type { LearningAnalysisAgentContext } from "../spaced-repetition/ai-learning-analysis.ts";
-import type { AiChatRecord, AiChatRequest } from "./chat.ts";
 
 export type AiAnalysisRecord =
   | { type: "baseline"; analysis: LearningAnalysisAgentContext["baseline"] }
@@ -102,45 +101,6 @@ export class LocalAiClient {
     if (buffer.trim()) yield parseRecord(buffer);
   }
 
-  async *chatJapanese(
-    request: AiChatRequest,
-    signal?: AbortSignal,
-  ): AsyncIterable<AiChatRecord> {
-    const sessionToken = await this.ensureSession(signal);
-    const response = await this.fetchImpl(`${this.baseUrl}/v1/chat`, {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-N4-AI-Session": sessionToken,
-      },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-      if (response.status === 401) this.sessionToken = null;
-      throw new Error(`ai_bridge_http_${response.status}`);
-    }
-    if (response.headers.get("content-type")?.split(";")[0].trim() !== "application/x-ndjson") {
-      throw new Error("ai_bridge_ndjson_required");
-    }
-    if (!response.body) throw new Error("ai_bridge_empty_stream");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        yield parseChatRecord(line);
-      }
-      if (done) break;
-    }
-    if (buffer.trim()) yield parseChatRecord(buffer);
-  }
-
   private async ensureSession(signal?: AbortSignal): Promise<string> {
     if (this.sessionToken) return this.sessionToken;
     const response = await this.fetchImpl(`${this.baseUrl}/v1/session`, {
@@ -223,15 +183,5 @@ function parseRecord(line: string): AiAnalysisRecord {
   const value: unknown = JSON.parse(line);
   if (!value || typeof value !== "object" || !("type" in value)) throw new Error("ai_bridge_invalid_ndjson");
   if (value.type === "baseline" || value.type === "done" || value.type === "fallback") return value as AiAnalysisRecord;
-  throw new Error("ai_bridge_unknown_record");
-}
-
-function parseChatRecord(line: string): AiChatRecord {
-  const value: unknown = JSON.parse(line);
-  if (!value || typeof value !== "object" || !("type" in value)) throw new Error("ai_bridge_invalid_ndjson");
-  if (value.type === "delta" && "text" in value && typeof value.text === "string") return value as AiChatRecord;
-  if (value.type === "done" || (value.type === "fallback" && "reason" in value && typeof value.reason === "string")) {
-    return value as AiChatRecord;
-  }
   throw new Error("ai_bridge_unknown_record");
 }

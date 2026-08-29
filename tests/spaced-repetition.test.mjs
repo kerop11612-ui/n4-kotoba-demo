@@ -13,6 +13,7 @@ import { buildReviewQueue, getRecentReviewWordIds, interleaveFocusedQueue } from
 import { clearReviewSession, readReviewSession, writeReviewSession } from "../src/spaced-repetition/review-session-storage.ts";
 import { schedulePracticeRetry, scheduleReviewRetry } from "../src/spaced-repetition/review-session-queue.ts";
 import { LocalStorageMemoryRepository } from "../src/storage/memory-repository.ts";
+import { getMemoryDataImportSummary, isImportableMemoryData } from "../src/storage/memory-repository-utils.ts";
 import { createMemoryRepository } from "../src/storage/repository-factory.ts";
 import { buildHomeRecommendation, buildStudyDashboard, buildStudyOverview, buildUnitRecommendation, estimateReviewMinutes, resolveReviewShortcut } from "../src/spaced-repetition/study-session.ts";
 import { didRevealAnswer, didUseManualHint, needsImmediateRetry } from "../src/spaced-repetition/review-summary.ts";
@@ -706,6 +707,48 @@ test("invalid imports do not replace existing memory data", async () => {
   await repository.saveWordMemory(memory);
   await assert.rejects(() => repository.importData({ schemaVersion: 99, memories: {} }), /學習資料格式無效/);
   assert.equal((await repository.getWordMemory("persisted"))?.wordId, "persisted");
+});
+
+test("memory import validation rejects empty, malformed, and all-invalid backups", () => {
+  const memory = createWordMemory("validated-import", "unit-1", now);
+  const valid = { schemaVersion: 2, memories: { "validated-import:jp_to_meaning": memory }, history: [], events: [] };
+
+  assert.equal(isImportableMemoryData({}), false);
+  assert.equal(isImportableMemoryData({ events: { dueAt: "2026-01-01T00:00:00.000Z" } }), false);
+  assert.equal(isImportableMemoryData({ schemaVersion: 2, memories: {} }), false);
+  assert.equal(isImportableMemoryData({ schemaVersion: 2, memories: { broken: {} } }), false);
+  assert.equal(isImportableMemoryData({ schemaVersion: 2, memories: valid.memories, history: [{}], events: [] }), false);
+  assert.equal(isImportableMemoryData(valid), true);
+  assert.deepEqual(getMemoryDataImportSummary(valid), { format: "v2", memories: 1, history: 0, events: 0 });
+});
+
+test("memory import validation keeps supported v1 and legacy backups usable", () => {
+  const memory = createWordMemory("v1-import", "unit-1", now);
+  assert.equal(
+    isImportableMemoryData({ schemaVersion: 1, memories: { "v1-import": memory }, history: [] }),
+    true,
+  );
+  assert.equal(
+    isImportableMemoryData({ legacy: { dueAt: "2026-01-01T00:00:00.000Z" } }),
+    true,
+  );
+  assert.equal(isImportableMemoryData({ legacy: { dueAt: "not-a-date" } }), false);
+});
+
+test("malformed backup does not replace existing memory data", async () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const repository = new LocalStorageMemoryRepository(storage);
+  await repository.saveWordMemory(createWordMemory("kept-after-import", "unit-1", now));
+
+  await assert.rejects(
+    () => repository.importData({ schemaVersion: 2, memories: { broken: {} }, history: [], events: [] }),
+    /學習資料格式無效/,
+  );
+  assert.equal((await repository.getWordMemory("kept-after-import"))?.wordId, "kept-after-import");
 });
 
 test("review commit persists memory, history, and event in one write", async () => {
