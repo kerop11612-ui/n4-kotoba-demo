@@ -19,3 +19,9 @@ test("學習介面使用清晰的日文無襯線字體與閱讀尺寸", () => {
 test("個人學習桌面統計維持平衡的三欄配置", () => {
   assert.match(homeStyles, /\.stats\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*1fr\)/);
 });
+
+test("寬螢幕單字卡每列顯示三張並保留響應式降欄", () => {
+  assert.match(demoStyles, /\.cardGrid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(demoStyles, /@media \(max-width:\s*1320px\)[\s\S]*?\.cardGrid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(demoStyles, /@media \(max-width:\s*700px\)[\s\S]*?\.cardGrid\s*\{[^}]*grid-template-columns:\s*1fr/s);
+});
