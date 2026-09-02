@@ -10,6 +10,8 @@ import {
   readPracticeSession,
   writePracticeSession,
 } from "../src/spaced-repetition/practice-session-storage.ts";
+import { buildMetaSchedule } from "../src/spaced-repetition/meta-scheduler.ts";
+import { transitionLeechState } from "../src/spaced-repetition/leech-state.ts";
 
 test("needs-practice predicate uses all review signals but excludes unseen and deferred manual mastery", () => {
   const now = new Date("2026-08-20T00:00:00Z");
@@ -356,4 +358,147 @@ test("practice hooks switch active format per item and use composite retry compl
   assert.match(reviewHook, /const activeReviewFormat/);
   assert.match(reviewHook, /schedulePracticeRetry\(practiceItems/);
   assert.match(reviewHook, /if \(reviewIndex >= reviewWords\.length - 1 && !retryScheduled\)/);
+});
+
+test("buildMetaSchedule returns one due item from one due and nine stable cards without filler", () => {
+  const now = new Date("2026-08-20T00:00:00Z");
+  const dueMemory = createWordMemory("due-word", "unit-1", now, "jp_to_meaning");
+  dueMemory.reviewCount = 3;
+  dueMemory.fsrsCard.due = new Date("2026-08-19T00:00:00Z").toISOString();
+  dueMemory.fsrsCard.stability = 2;
+  dueMemory.fsrsCard.difficulty = 5;
+
+  const stableMemories = Array.from({ length: 9 }, (_, i) => {
+    const mem = createWordMemory(`stable-${i}`, "unit-1", now, "jp_to_meaning");
+    mem.reviewCount = 5;
+    mem.fsrsCard.due = new Date("2026-09-01T00:00:00Z").toISOString();
+    mem.fsrsCard.stability = 30;
+    mem.fsrsCard.difficulty = 3;
+    return mem;
+  });
+
+  const candidates = buildMetaSchedule({
+    memories: [dueMemory, ...stableMemories],
+    masteries: [],
+    attempts: [],
+    limit: 10,
+    now,
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].wordId, "due-word");
+  assert.equal(candidates[0].reason, "fsrs_due");
+});
+
+test("buildMetaSchedule prioritizes due before diagnostic and diagnostic before new skill", () => {
+  const now = new Date("2026-08-20T00:00:00Z");
+
+  // 1. Due card
+  const dueMemory = createWordMemory("due-card", "unit-1", now, "jp_to_meaning");
+  dueMemory.reviewCount = 2;
+  dueMemory.fsrsCard.due = new Date("2026-08-19T00:00:00Z").toISOString();
+  dueMemory.fsrsCard.stability = 1;
+
+  // 2. Diagnostic card (vulnerable due to weaknessRisk)
+  const diagMemory = createWordMemory("diag-card", "unit-1", now, "meaning_to_jp");
+  diagMemory.reviewCount = 3;
+  diagMemory.fsrsCard.due = new Date("2026-08-25T00:00:00Z").toISOString();
+  diagMemory.fsrsCard.stability = 5;
+  const diagMastery = {
+    wordId: "diag-card",
+    receptive: { skill: "jp_to_meaning", band: "likely_familiar", confidence: "medium", retrievabilityNow: 0.9, retrievabilityAtHorizon: 0.8, independentAttempts: 3, independentSuccesses: 3, assistedSuccesses: 0, recentIndependentFailures: 0, responseTrend: "stable", reasons: [] },
+    productive: { skill: "meaning_to_jp", band: "uncertain", confidence: "medium", retrievabilityNow: 0.7, retrievabilityAtHorizon: 0.5, independentAttempts: 3, independentSuccesses: 1, assistedSuccesses: 0, recentIndependentFailures: 1, responseTrend: "slower", reasons: [] },
+    contextual: { skill: "context_to_word", band: "unknown", confidence: "low", retrievabilityNow: null, retrievabilityAtHorizon: null, independentAttempts: 0, independentSuccesses: 0, assistedSuccesses: 0, recentIndependentFailures: 0, responseTrend: "unknown", reasons: [] },
+    crossSkillDisagreement: false,
+    unfamiliarityBand: "uncertain",
+    weaknessRisk: "high",
+    confidence: "medium",
+    reasons: ["productive 保持率預測明顯下降"],
+  };
+
+  // 3. New skill acquisition card
+  const newSkillMemory = createWordMemory("new-skill-card", "unit-1", now, "jp_to_meaning");
+  newSkillMemory.reviewCount = 5;
+  newSkillMemory.fsrsCard.due = new Date("2026-08-30T00:00:00Z").toISOString();
+  newSkillMemory.fsrsCard.stability = 20;
+  const newSkillMastery = {
+    wordId: "new-skill-card",
+    receptive: { skill: "jp_to_meaning", band: "likely_familiar", confidence: "high", retrievabilityNow: 0.95, retrievabilityAtHorizon: 0.85, independentAttempts: 5, independentSuccesses: 5, assistedSuccesses: 0, recentIndependentFailures: 0, responseTrend: "stable", reasons: [] },
+    productive: { skill: "meaning_to_jp", band: "unknown", confidence: "low", retrievabilityNow: null, retrievabilityAtHorizon: null, independentAttempts: 0, independentSuccesses: 0, assistedSuccesses: 0, recentIndependentFailures: 0, responseTrend: "unknown", reasons: [] },
+    contextual: { skill: "context_to_word", band: "unknown", confidence: "low", retrievabilityNow: null, retrievabilityAtHorizon: null, independentAttempts: 0, independentSuccesses: 0, assistedSuccesses: 0, recentIndependentFailures: 0, responseTrend: "unknown", reasons: [] },
+    crossSkillDisagreement: false,
+    unfamiliarityBand: "likely_familiar",
+    weaknessRisk: "low",
+    confidence: "high",
+    reasons: [],
+  };
+
+  const schedule = buildMetaSchedule({
+    memories: [newSkillMemory, diagMemory, dueMemory],
+    masteries: [diagMastery, newSkillMastery],
+    attempts: [],
+    limit: 10,
+    now,
+  });
+
+  assert.equal(schedule.length, 3);
+  assert.equal(schedule[0].wordId, "due-card");
+  assert.equal(schedule[0].reason, "fsrs_due");
+  assert.equal(schedule[1].wordId, "diag-card");
+  assert.equal(schedule[1].reason, "weakness_diagnostic");
+  assert.equal(schedule[2].wordId, "new-skill-card");
+  assert.equal(schedule[2].reason, "new_skill");
+});
+
+test("transitionLeechState correctly identifies cross-session struggling, cross-day leech, and recovery", () => {
+  const now = new Date("2026-08-20T12:00:00Z");
+
+  // Case 1: 3 Again events in the SAME session do NOT become a leech
+  const sameSessionAttempts = [
+    { id: "e1", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-20T10:00:00Z", correct: false, recalledWithoutHint: true, hintLevel: 0, responseMs: 1500, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: 1, reviewCountBefore: 1, sessionId: "sess-1" },
+    { id: "e2", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-20T10:05:00Z", correct: false, recalledWithoutHint: true, hintLevel: 0, responseMs: 1500, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: 1, reviewCountBefore: 2, sessionId: "sess-1" },
+    { id: "e3", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-20T10:10:00Z", correct: false, recalledWithoutHint: true, hintLevel: 0, responseMs: 1500, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: 1, reviewCountBefore: 3, sessionId: "sess-1" },
+  ];
+  const snapshot1 = transitionLeechState(undefined, sameSessionAttempts, now);
+  assert.notEqual(snapshot1.state, "leech");
+
+  // Case 2: Failures across sessions enter struggling
+  const multiSessionAttempts = [
+    ...sameSessionAttempts,
+    { id: "e4", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-20T15:00:00Z", correct: false, recalledWithoutHint: true, hintLevel: 0, responseMs: 1500, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: 1, reviewCountBefore: 4, sessionId: "sess-2" },
+  ];
+  const snapshot2 = transitionLeechState(snapshot1, multiSessionAttempts, now);
+  assert.equal(snapshot2.state, "struggling");
+
+  // Case 3: Failures across days enter leech
+  const crossDayAttempts = [
+    ...multiSessionAttempts,
+    { id: "e5", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-21T10:00:00Z", correct: false, recalledWithoutHint: true, hintLevel: 0, responseMs: 1500, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: 1, reviewCountBefore: 5, sessionId: "sess-3" },
+  ];
+  const snapshot3 = transitionLeechState(snapshot2, crossDayAttempts, new Date("2026-08-21T12:00:00Z"));
+  assert.equal(snapshot3.state, "leech");
+
+  // Case 4: Scaffold intervention moves to scaffolded
+  const scaffoldAttempts = [
+    ...crossDayAttempts,
+    { id: "e6", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-21T10:05:00Z", correct: true, recalledWithoutHint: false, hintLevel: 2, usedHint: true, responseMs: 2000, errorTypes: [], predictedRecallBeforeReview: 0.5, fsrsRating: null, reviewCountBefore: 5, attemptKind: "scaffold", sessionId: "sess-3" },
+  ];
+  const snapshot4 = transitionLeechState(snapshot3, scaffoldAttempts, new Date("2026-08-21T12:00:00Z"));
+  assert.equal(snapshot4.state, "scaffolded");
+
+  // Case 5: Independent diagnostic after scaffold moves to recovering
+  const recoveringAttempts = [
+    ...scaffoldAttempts,
+    { id: "e7", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-21T10:15:00Z", correct: true, recalledWithoutHint: true, hintLevel: 0, usedHint: false, responseMs: 1200, errorTypes: [], predictedRecallBeforeReview: 0.6, fsrsRating: 3, reviewCountBefore: 6, attemptKind: "diagnostic", sessionId: "sess-3" },
+  ];
+  const snapshot5 = transitionLeechState(snapshot4, recoveringAttempts, new Date("2026-08-21T12:00:00Z"));
+  assert.equal(snapshot5.state, "recovering");
+
+  // Case 6: Later spaced success moves to mastered
+  const masteredAttempts = [
+    ...recoveringAttempts,
+    { id: "e8", wordId: "w1", unitId: "u1", skill: "jp_to_meaning", reviewedAt: "2026-08-23T10:00:00Z", correct: true, recalledWithoutHint: true, hintLevel: 0, usedHint: false, responseMs: 1000, errorTypes: [], predictedRecallBeforeReview: 0.8, fsrsRating: 3, reviewCountBefore: 7, attemptKind: "scheduled", sessionId: "sess-4" },
+  ];
+  const snapshot6 = transitionLeechState(snapshot5, masteredAttempts, new Date("2026-08-23T12:00:00Z"));
+  assert.equal(snapshot6.state, "mastered");
 });

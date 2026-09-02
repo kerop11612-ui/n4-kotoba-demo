@@ -22,6 +22,7 @@ import { useVocabularyIndex } from "./hooks/useVocabularyIndex";
 import { useVocabularyUnit } from "./hooks/useVocabularyUnit";
 import { useLearningRecommendation } from "./hooks/useLearningRecommendation";
 import { calculateUnitStats, filterUnitEvidence } from "../src/spaced-repetition/unit-stats";
+import { calculateVocabularyMastery } from "../src/spaced-repetition/vocabulary-mastery";
 import { getLearningStatus, isManualMasteryDue } from "../src/spaced-repetition/mastery";
 import { matchesLearningFilter, type LearningFilter } from "../src/spaced-repetition/learning-filter";
 import { getMemoryKey } from "../src/spaced-repetition/types";
@@ -116,6 +117,13 @@ export default function DemoPage() {
   const visibleWords = useMemo(
     () => searchVocabulary(filteredUnitWords, search),
     [filteredUnitWords, search],
+  );
+  const vocabularyMasteryByWord = useMemo(
+    () => new Map(unitWords.map((word) => [
+      word.id,
+      calculateVocabularyMastery(word.id, memoryRecords, reviewEvents, statsNow),
+    ])),
+    [memoryRecords, reviewEvents, statsNow, unitWords],
   );
 
   useEffect(() => {
@@ -257,7 +265,8 @@ export default function DemoPage() {
                 </p>
                 <h1>{selectedSectionData?.sectionTitle}</h1>
                 <p className={styles.sectionProgress} aria-label="目前章節掌握進度">
-                  第 {selectedSectionData?.chapterNumber} 章｜第 {selectedSectionData?.sectionNumber} 節｜{unitStats.stableWords}／{unitStats.totalWords} 個｜30 天保持率 {unitStats.masteryDataReady ? `${unitStats.masteryPercent}%` : "資料累積中"}
+                  第 {selectedSectionData?.chapterNumber} 章｜第 {selectedSectionData?.sectionNumber} 節｜目前穩定 {unitStats.stableWords}／{unitStats.totalWords} 個
+                  {unitStats.masteryDataReady && <>｜30 天保持率 {unitStats.masteryPercent}%</>}
                 </p>
               </div>
               <span className={styles.wordCount}>{visibleWords.length} 詞</span>
@@ -365,6 +374,7 @@ export default function DemoPage() {
               word={word}
               wordIndex={wordIndex}
               memory={memoryRecords[getMemoryKey(word.id, "jp_to_meaning")]}
+              mastery={vocabularyMasteryByWord.get(word.id)!}
               currentAudioId={currentAudio?.id}
               isPlaylist={isPlaylist}
               showMeaning={showMeaning}

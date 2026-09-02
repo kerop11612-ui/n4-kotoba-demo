@@ -1,13 +1,15 @@
 import styles from "../demo.module.css";
-import { calculateMasterySnapshot, getLearningStatus, getMasteryLabel } from "../../src/spaced-repetition/mastery";
-import type { MasterySnapshot } from "../../src/spaced-repetition/mastery";
+import { getLearningStatus } from "../../src/spaced-repetition/mastery";
 import type { WordMemoryRecord } from "../../src/spaced-repetition/types";
+import type { VocabularyMastery } from "../../src/spaced-repetition/vocabulary-mastery";
 import { AudioIcon, StarIcon, type AudioStep, renderRuby, type DemoWord } from "./vocabulary";
+import { formatSkillMastery } from "./learningPresentation";
 
 type WordCardProps = {
   word: DemoWord;
   wordIndex: number;
   memory?: WordMemoryRecord;
+  mastery: VocabularyMastery;
   currentAudioId?: string;
   isPlaylist: boolean;
   showMeaning: boolean;
@@ -26,6 +28,7 @@ export function WordCard({
   word,
   wordIndex,
   memory,
+  mastery,
   currentAudioId,
   isPlaylist,
   showMeaning,
@@ -39,9 +42,6 @@ export function WordCard({
   onPlayOne,
   onToggleFavorite,
 }: WordCardProps) {
-  const masterySnapshot: MasterySnapshot = calculateMasterySnapshot(memory);
-  const masteryLabel = getMasteryLabel(masterySnapshot.masteryPercent, masterySnapshot.reviewCount);
-  const masteryText = masterySnapshot.reviewCount < 3 ? masteryLabel : `${masterySnapshot.masteryPercent}%`;
   const learningStatus = getLearningStatus(memory);
   const manualMastered = memory?.manualMastered === true;
   const wordStepId = `${word.id}-word`;
@@ -84,7 +84,9 @@ export function WordCard({
         <button
           className={`${styles.manualMasteryButton} ${manualMastered ? styles.manualMasteryButtonActive : ""}`}
           type="button"
+          aria-label={manualMastered ? `取消標記${word.word}為已學會` : `標記${word.word}為已學會`}
           aria-pressed={manualMastered}
+          title={manualMastered ? "取消已學會標記" : "標記為已學會"}
           onClick={() => onToggleManualMastered(!manualMastered)}
         >
           {manualMastered ? "已學會" : "標記已學會"}
@@ -98,19 +100,13 @@ export function WordCard({
           </div>
           <div className={styles.meaningMeta}>
             <span className={styles.wordStatus} data-status={learningStatus}>{learningStatus}</span>
-            <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
-              30天保持率 {masteryText}
-            </span>
             <span className={styles.wordNumber}>#{String(word.number).padStart(3, "0")}</span>
           </div>
         </div>
       ) : (
         <div className={styles.wordNumberOnly}>
           <span className={styles.wordStatus} data-status={learningStatus}>{learningStatus}</span>
-          <span className={styles.wordMastery} title={`目前記憶率 ${masterySnapshot.currentRecallPercent}%`}>
-            30天保持率 {masteryText}
-          </span>
-          <span>#{String(word.number).padStart(3, "0")}</span>
+          <span className={styles.wordNumber}>#{String(word.number).padStart(3, "0")}</span>
         </div>
       )}
 
@@ -120,7 +116,7 @@ export function WordCard({
             <p className={styles.exampleJapanese} lang="ja">{renderRuby(word.example)}</p>
             {showExampleTranslation && (
               <div className={styles.translationRevealZone} tabIndex={blurTranslations ? 0 : undefined}>
-                    <p className={`${styles.exampleTranslation} ${translationClassName}`}>
+                <p className={`${styles.exampleTranslation} ${translationClassName}`}>
                   {word.exampleZhTw}
                 </p>
               </div>
@@ -141,6 +137,22 @@ export function WordCard({
           </div>
         </div>
       )}
+
+      <details className={styles.wordSkillsDetails}>
+        <summary className={styles.wordSkillsSummary}>掌握度細項</summary>
+        <div className={styles.wordSkillsGrid}>
+          {([
+            ["看懂（日→中）", mastery.receptive],
+            ["想得出來（中→日）", mastery.productive],
+            ["語境運用", mastery.contextual],
+          ] as const).map(([label, snapshot]) => (
+            <div className={styles.wordSkillRow} key={label}>
+              <span>{label}</span>
+              <strong>{formatSkillMastery(snapshot)}</strong>
+            </div>
+          ))}
+        </div>
+      </details>
     </article>
   );
 }

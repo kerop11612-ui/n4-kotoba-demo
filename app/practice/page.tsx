@@ -7,6 +7,7 @@ import { AppNav } from "../components/AppNav";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { SyncAccountCard } from "../components/SyncAccountCard";
 import { usePracticeSession } from "../hooks/usePracticeSession";
+import { getPracticeReasonLabels } from "../components/learningPresentation";
 import type { ReviewFormat } from "../../src/spaced-repetition/types";
 
 export default function PracticePage() {
@@ -46,6 +47,7 @@ export default function PracticePage() {
     setReviewFormat,
     resumeReview,
     startReview,
+    practiceItems,
   } = usePracticeSession();
 
   function handleFormatChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -58,6 +60,7 @@ export default function PracticePage() {
         <header className={styles.topbar}><AppNav active="practice" /></header>
         <section className={styles.reviewWorkspace}>
           <ReviewPanel
+            key={`${activeReviewFormat ?? reviewFormat}-${reviewIndex}`}
             reviewWords={reviewWords}
             reviewIndex={reviewIndex}
             reviewComplete={reviewComplete}
@@ -92,6 +95,7 @@ export default function PracticePage() {
   const hasResume = Boolean(reviewResume);
   const resumeIndex = (reviewResume?.index ?? 0) + 1;
   const resumeTotal = reviewResume?.total ?? queueLength;
+  const reasonLabels = getPracticeReasonLabels(practiceItems);
   return (
     <main className={styles.page}>
       <header className={styles.topbar}><AppNav active="practice" /></header>
@@ -124,6 +128,10 @@ export default function PracticePage() {
           <div>
             <p className={styles.eyebrow}>今日最佳練習</p>
             <p className={styles.recommendation}>包含 {dueCount} 個到期、{weakCount} 個待加強（分類可能重疊），每個單字挑最需要回想的技能。</p>
+            {reasonLabels.length > 0 && <div className={styles.recommendationReasonBlock} aria-label="安排原因">
+              <span className={styles.reasonLabel}>安排原因</span>
+              {reasonLabels.map((label) => <span className={styles.reasonTag} key={label}>{label}</span>)}
+            </div>}
             <details className={styles.customPractice}>
               <summary>自訂練習</summary>
               <label className={styles.formatField} htmlFor="practice-format">

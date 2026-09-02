@@ -74,9 +74,12 @@
 }
 .settingsGroups {
   display: grid;
-  grid-template-columns: 1.1fr 1fr 1.1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 16px;
+}
+.advancedSettings .settingsGroup {
+  grid-column: 1 / -1;
 }
 .settingsGroup {
   min-width: 0;
@@ -104,6 +107,9 @@
   color: #111;
   font-size: 12px;
   cursor: pointer;
+}
+.modeOption {
+  min-height: 56px;
 }
 .settingsOption:has(input:checked),.settingsCheck:has(input:checked),.compactOption:has(input:checked) {
   border-color: #222;
@@ -151,6 +157,44 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.advancedSettings {
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+.advancedSettings > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #222;
+  font-size: 11px;
+  font-weight: 700;
+}
+.advancedSettings > summary::after {
+  margin-left: auto;
+  color: #555;
+  content: "＋";
+}
+.advancedSettings[open] > summary::after {
+  content: "－";
+}
+.settingsPrimaryAction {
+  min-height: 44px;
+  display: block;
+  margin: 12px 0 0 auto;
+  border: 1px solid #222;
+  border-radius: 7px;
+  background: #222;
+  color: #fff;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.settingsPrimaryAction:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
 .sheet {
   background: #fff;
   padding: 26px 42px 38px;
@@ -169,7 +213,7 @@
 .sheetHeader h1 {
   margin: 0;
   font-family: var(--font-jp), "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
-  font-size: 24px;
+    font-size: 22px;
   font-weight: 600;
 }
 .sheetMeta,.instruction,.notice {
@@ -219,7 +263,7 @@
   gap: 0 22px;
 }
 .questionRow {
-  min-height: 9.8mm;
+    min-height: 10mm;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) minmax(78px, .9fr);
   align-items: center;
@@ -257,7 +301,7 @@
   min-width: 0;
   display: block;
   border-bottom: 1px solid #555;
-  height: 17px;
+    height: 20px;
 }
 .pageBreakBefore {
   break-before: page;
@@ -278,7 +322,7 @@
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 2px 5px;
   border-bottom: 1px solid #d2d2d2;
-  padding: 4px 0;
+    padding: 6px 0;
   break-inside: avoid;
   page-break-inside: avoid;
   font-size: 10pt;
@@ -352,6 +396,13 @@
   .settingsGroups {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+  .settingsGroup:last-child,
+  .advancedSettings {
+    grid-column: auto;
+  }
+  .settingsPrimaryAction {
+    width: 100%;
   }
   .sheet {
     padding: 22px 18px 30px;

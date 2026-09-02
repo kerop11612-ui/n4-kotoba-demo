@@ -1,4 +1,7 @@
-import styles from "../demo.module.css";
+"use client";
+
+import { useState } from "react";
+import styles from "./review.module.css";
 import { createClozeSentence } from "../../src/spaced-repetition/cloze";
 import { getKanaHint } from "../../src/spaced-repetition/kana-hint";
 import type { HintLevel, ReviewFormat, ReviewRating } from "../../src/spaced-repetition/types";
@@ -62,6 +65,8 @@ export function ReviewPanel({
 }: ReviewPanelProps) {
   const reviewFormat = activeReviewFormat ?? selectedReviewFormat;
   const reviewWord = reviewWords[reviewIndex];
+  const [readingRevealed, setReadingRevealed] = useState(false);
+
   if (!reviewWord) return null;
   const cloze = createClozeSentence(reviewWord.example, [reviewWord.word, reviewWord.reading]);
   const isCloze = reviewFormat === "cloze";
@@ -95,6 +100,9 @@ export function ReviewPanel({
       className={styles.reviewWord}
       type="button"
       disabled={!reviewWord.wordAudio}
+      onPointerDown={(event) => {
+        if (event.pointerType !== "mouse") setReadingRevealed(true);
+      }}
       onClick={() => onPlayOne({
         id: `${reviewWord.id}-word`,
         label: `${reviewWord.word}・單字`,
@@ -102,7 +110,9 @@ export function ReviewPanel({
       })}
     >
       <span lang="ja">{reviewWord.word}</span>
-      <small lang="ja">{reviewWord.reading}</small>
+      <small className={readingRevealed ? styles.reviewReadingRevealed : ""} lang="ja">
+        <span className={styles.reviewReading}>{reviewWord.reading}</span>
+      </small>
     </button>
   );
 

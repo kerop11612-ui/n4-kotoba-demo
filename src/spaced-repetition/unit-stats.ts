@@ -20,7 +20,7 @@ export function calculateUnitStats(
   events: VocabularyReviewEvent[] = [],
 ): UnitStats {
   const total = Math.max(0, totalWords);
-  const uniqueMemories = deduplicateMemories(memories);
+  const uniqueMemories = deduplicateMemories(memories, now);
   const learningStatusCounts = {
     "尚未練習": 0,
     "需要加強": 0,
@@ -96,15 +96,29 @@ export function calculateUnitStats(
   };
 }
 
-function deduplicateMemories(memories: WordMemoryRecord[]): WordMemoryRecord[] {
-  const unique = new Map<string, WordMemoryRecord>();
+function deduplicateMemories(memories: WordMemoryRecord[], now = new Date()): WordMemoryRecord[] {
+  const groups = new Map<string, WordMemoryRecord[]>();
   for (const memory of memories) {
-    const existing = unique.get(memory.wordId);
-    if (!existing || memory.reviewCount > existing.reviewCount || memory.updatedAt > existing.updatedAt) {
-      unique.set(memory.wordId, memory);
+    const list = groups.get(memory.wordId) ?? [];
+    list.push(memory);
+    groups.set(memory.wordId, list);
+  }
+  const result: WordMemoryRecord[] = [];
+  for (const list of groups.values()) {
+    const reviewed = list.filter((m) => m.reviewCount > 0);
+    if (reviewed.length > 0) {
+      // Pick the weakest memory by retrievability, or lowest stability if due
+      reviewed.sort((a, b) => {
+        const rDiff = currentRetrievability(a, now) - currentRetrievability(b, now);
+        if (Math.abs(rDiff) > 0.001) return rDiff;
+        return a.fsrsCard.stability - b.fsrsCard.stability || b.reviewCount - a.reviewCount;
+      });
+      result.push(reviewed[0]);
+    } else {
+      result.push(list[0]);
     }
   }
-  return [...unique.values()];
+  return result;
 }
 
 function isManualHint(item: { hintLevel: number; usedHint?: boolean }): boolean {

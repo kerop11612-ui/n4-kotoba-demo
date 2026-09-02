@@ -2,15 +2,19 @@
 
 ## 目前狀態
 
-- `/practice` 已接上 adaptive per-card format、重試佇列、提示階梯、推薦優先與可展開自訂練習。
-- 保存資料匯入會拒絕空白、格式錯誤、部分損毀與全無效備份，並保留既有資料與匯入前備份。
-- 首頁、單字庫與收藏頁已完成手機優先 UI 優化；390px 無水平捲動，主要操作目標至少 44px。
-- 已移除使用者可見 AI 助教聊天入口、FAB、Drawer、hook、聊天橋接端點與聊天測試；保留本機推薦、FSRS、收藏、備份與非 UI 學習分析。
-- 完成專注列印版：純白黑灰 A4、雙欄分頁、方向／題數／排版選擇、獨立答案讀音、頁數摘要與精簡答案頁。
-- 單字庫寬螢幕改為每列 3 張單字卡；1320px 以下維持 2 張，700px 以下維持 1 張。
-- 驗證通過：`npm run lint:app`、`npm run check:types`、`npm test`（144 passed）、`npm run build`；1600／1200／390px 實測分別為 3／2／1 欄且無水平捲動。
+- 已完成單字記憶架構優化（Work Package 1: Rating Evidence Contract & Scheduler Profile Isolation）。
+- 已完成單字掌握度引擎與弱點模型（Work Package 2: Per-Skill Mastery and Predictive Weakness）。
+- 已完成 Meta Scheduler、重試語意與 Leech 恢復流程（Work Package 3: Meta Scheduler, Retry Semantics, and Leech Recovery）。
+- 已完成產品整合與發布驗證（Work Package 4: Product Integration & Release Verification）：
+  1. **三項核心技能掌握度 UI 整合**：單字卡以 `VocabularyMastery` 真實快照呈現 `看懂（日→中）`、`想得出來（中→日）`、`語境運用`；未知狀態顯示「尚未練習」，證據不足顯示「資料累積中」，不偽造 0%。
+  2. **練習推薦原因語意整合**：練習區只依 `PracticePlanItem.reason` 顯示去重後的安排原因；沒有 reason 時不渲染原因區塊。
+  3. **專注列印設定減負**：用途改為快速選擇，題目設定與進階顯示分組；進階選項預設收合，並提供清楚的「開始列印」主按鈕。
+  3. **合約與端到端多技能重放測試**：在 `tests/ui-contract.test.mjs` 與 `tests/learning-sync.test.mjs` 加入多裝置、跨 3 種技能、鷹架練習與無序重放等冪性驗證。
+  4. **手機優先 390px 佈局與可及性確認**：無水平捲動，觸控互動目標均達 44px 以上。
+- 驗證通過：聚焦 UI／列印測試（12/12）、`npm run check:types`、`npm run lint:app`（0 錯誤，4 個既有 warning）、`npm test`（173/173）、`npm run build`（靜態網頁與 API 輸出成功）；390×844 首頁、`/practice` 與列印設定頁均無水平捲動。
+- 已知工具問題：`npm run check` 仍會掃描 `.worktrees/**/.next` 與 `.worktrees/**/out` 產物，本次未修改全域 ESLint 設定。
 
 ## 下一步
 
-1. 使用瀏覽器實測 `/practice` 的提示、答錯、延後重試、暫停／恢復與完成摘要流程。
-2. 補 IndexedDB 端到端測試，再評估將記憶卡與複習事件分開保存。
+1. 彙整全 4 個 Work Package 的成果回報供審查。
+2. 規劃未來的多設備雲端即時同步實機測試與效能監控。

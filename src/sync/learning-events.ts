@@ -20,6 +20,15 @@ export type ReviewLearningEvent = LearningEventBase & {
   type: "review";
   payload: Pick<ReviewHistoryRecord, "rawRating" | "hintLevel" | "answerCorrect" | "answerAttempts" | "usedHint" | "answerRevealed" | "responseTimeMs" | "correct" | "recalledWithoutHint" | "errorTypes" | "confusedWordIds" | "hintKinds"> & {
     reviewFormat: ReviewFormat;
+    rawUserRating?: import("../spaced-repetition/types.ts").ReviewRating;
+    effectiveFsrsRating?: 1 | 2 | 3 | 4 | null;
+    ratingMappingReason?: import("../spaced-repetition/types.ts").RatingMappingReason;
+    attemptKind?: import("../spaced-repetition/types.ts").ReviewAttemptKind;
+    answerRevealedBeforeResponse?: boolean;
+    answerFeedbackShownAfterResponse?: boolean;
+    scheduledAt?: string;
+    sessionId?: string;
+    schedulerProfileId?: string;
   };
 };
 
@@ -30,13 +39,17 @@ export type ManualMasteryLearningEvent = LearningEventBase & {
 
 export type MemorySnapshotLearningEvent = LearningEventBase & {
   type: "memory_snapshot";
-  payload: { memory: WordMemoryRecord };
+  payload: { memory: WordMemoryRecord; cutoffProfileId?: string };
 };
 
 export type LearningEvent = ReviewLearningEvent | ManualMasteryLearningEvent | MemorySnapshotLearningEvent;
 
-export function createLearningEventId(randomUUID: () => string = () => crypto.randomUUID()): string {
-  return randomUUID();
+export function createLearningEventId(randomUUID?: () => string): string {
+  if (randomUUID) return randomUUID();
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function reviewHistoryToLearningEvent(
@@ -67,6 +80,15 @@ export function reviewHistoryToLearningEvent(
       hintKinds: history.hintKinds ? [...history.hintKinds] : undefined,
       confusedWordIds: history.confusedWordIds,
       reviewFormat: history.reviewFormat ?? formatForSkill(skill),
+      rawUserRating: history.rawUserRating ?? history.rawRating,
+      effectiveFsrsRating: history.effectiveFsrsRating !== undefined ? history.effectiveFsrsRating : history.fsrsRating,
+      ratingMappingReason: history.ratingMappingReason,
+      attemptKind: history.attemptKind,
+      answerRevealedBeforeResponse: history.answerRevealedBeforeResponse,
+      answerFeedbackShownAfterResponse: history.answerFeedbackShownAfterResponse,
+      scheduledAt: history.scheduledAt,
+      sessionId: history.sessionId,
+      schedulerProfileId: history.schedulerProfileId,
     },
   };
 }

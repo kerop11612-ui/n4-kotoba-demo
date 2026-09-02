@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { AppNav } from "../components/AppNav";
 import { useVocabularyUnit } from "../hooks/useVocabularyUnit";
 import { searchVocabulary } from "../../src/vocabulary/selectors";
+import { selectFocusedPrintWords } from "../../src/spaced-repetition/print-recommendation";
+import { useUnitMemory } from "../hooks/useUnitMemory";
 import type { VocabularyWord } from "../../src/vocabulary/types";
 import {
   chunkWords,
@@ -56,16 +58,22 @@ function PrintPracticeContent() {
   const [showExamples, setShowExamples] = useState(false);
   const [includeAnswerKey, setIncludeAnswerKey] = useState(true);
   const [layout, setLayout] = useState<PrintLayout>("two-column");
+  const [focused, setFocused] = useState(false);
+
+  const { memoryRecords } = useUnitMemory(words, chapter, section, enabled);
+  const memoriesArray = useMemo(() => Object.values(memoryRecords), [memoryRecords]);
 
   const availableWords = useMemo(
     () => searchVocabulary(words, query),
     [query, words],
   );
   const printWords = useMemo(
-    () => mode === "practice"
-      ? selectQuestionWords(availableWords, questionCount)
-      : availableWords,
-    [availableWords, mode, questionCount],
+    () => {
+      if (mode !== "practice") return availableWords;
+      if (focused) return selectFocusedPrintWords(availableWords, memoriesArray);
+      return selectQuestionWords(availableWords, questionCount);
+    },
+    [availableWords, focused, memoriesArray, mode, questionCount],
   );
   const pageCount = getPrintPageCount({
     mode,
@@ -123,9 +131,9 @@ function PrintPracticeContent() {
 
           <div className={styles.settingsGroups}>
             <fieldset className={styles.settingsGroup}>
-              <legend>① 選擇用途</legend>
+              <legend>快速選擇</legend>
               {(["practice", "study", "answers"] as PrintMode[]).map((option) => (
-                <label className={styles.settingsOption} key={option}>
+                <label className={`${styles.settingsOption} ${styles.modeOption}`} key={option}>
                   <input
                     type="radio"
                     name="print-mode"
@@ -148,7 +156,7 @@ function PrintPracticeContent() {
 
             {mode === "practice" && (
               <fieldset className={styles.settingsGroup}>
-                <legend>② 題目與方向</legend>
+                <legend>① 題目設定</legend>
                 {(["ja-to-zh", "zh-to-ja", "both"] as PracticeDirection[]).map((option) => (
                   <label className={styles.settingsOption} key={option}>
                     <input
@@ -176,17 +184,27 @@ function PrintPracticeContent() {
                         type="radio"
                         name="question-count"
                         checked={questionCount === value}
+                        disabled={focused}
                         onChange={() => setQuestionCount(value as QuestionCount)}
                       />
                       {value === "all" ? `全部 ${availableWords.length}` : `${value} 題`}
                     </label>
                   ))}
                 </div>
+                <label className={styles.settingsCheck}>
+                  <input
+                    type="checkbox"
+                    checked={focused}
+                    onChange={(event) => setFocused(event.target.checked)}
+                  />
+                  📊 專注模式（依記憶狀態選詞）
+                </label>
               </fieldset>
             )}
 
-            <fieldset className={styles.settingsGroup}>
-              <legend>{mode === "practice" ? "③ 顯示與排版" : "② 顯示與排版"}</legend>
+            <details className={styles.advancedSettings}>
+              <summary>{mode === "practice" ? "② 進階顯示" : "① 進階顯示"}</summary>
+              <fieldset className={styles.settingsGroup}>
               <div className={styles.layoutOptions}>
                 <label className={styles.compactOption}>
                   <input
@@ -256,16 +274,25 @@ function PrintPracticeContent() {
                   答案顯示讀音
                 </label>
               )}
-            </fieldset>
+              </fieldset>
+            </details>
           </div>
 
           <p className={styles.settingsStatus} role="status">
             {mode === "practice"
-              ? `${directionLabels[direction]}｜${countLabel}`
+              ? `${directionLabels[direction]}｜${focused ? "專注模式" : countLabel}`
               : `${printModeLabels[mode]}｜${availableWords.length} 詞`}
             ｜{layout === "two-column" ? "精簡雙欄" : "寬版單欄"}
             ｜預估 {pageEstimateLabel}
           </p>
+          <button
+            className={styles.settingsPrimaryAction}
+            type="button"
+            onClick={() => window.print()}
+            disabled={!printWords.length}
+          >
+            {mode === "study" && showExamples ? "開始列印" : `開始列印 ${pageCount} 頁`}
+          </button>
         </section>
       )}
 

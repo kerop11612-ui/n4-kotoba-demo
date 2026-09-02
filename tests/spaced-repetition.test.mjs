@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createClozeSentence, isClozeAnswerCorrect } from "../src/spaced-repetition/cloze.ts";
-import { createWordMemory, isSerializedCard, reviewWordMemory } from "../src/spaced-repetition/fsrs-adapter.ts";
+import { createWordMemory, isSerializedCard, reviewWordMemory, createTelemetryOnlyReviewEvent } from "../src/spaced-repetition/fsrs-adapter.ts";
+import { deriveReviewEvidence } from "../src/spaced-repetition/review-evidence.ts";
 import { mapHintedRating, mapOutcomeToFsrsRating } from "../src/spaced-repetition/rating-mapper.ts";
 import { currentRetrievability } from "../src/spaced-repetition/retrievability.ts";
 import { calculateMasteryPercent, calculateMasterySnapshot, getLearningStatus, getMasteryLabel, isManualMasteryDue, setManualMastery } from "../src/spaced-repetition/mastery.ts";
+import { calculateSkillMastery, MASTERY_POLICY_V1 } from "../src/spaced-repetition/skill-mastery.ts";
+import { calculateVocabularyMastery } from "../src/spaced-repetition/vocabulary-mastery.ts";
 import { aggregateLearningAnalysis, buildDeterministicLearningAnalysis, buildLearningAnalysisAgentContext, compactLearningAnalysisInput, createLearningAnalysisCacheKey, parseLearningAnalysisJson, validateLearningAnalysis, validateLearningAnalysisForContext } from "../src/spaced-repetition/ai-learning-analysis.ts";
 import { migrateMemoryData, migrateWordMemoryRecord } from "../src/storage/memory-migration.ts";
 import { Rating } from "ts-fsrs";
@@ -409,7 +412,7 @@ test("repository reset clears current and legacy local storage keys", async () =
 
   assert.equal(values.has("jlpt-spaced-repetition-memory-v1"), false);
   assert.equal(values.has("jlpt-apkg-progress-v2"), false);
-  assert.deepEqual(await repository.exportData(), { schemaVersion: 2, memories: {}, history: [], events: [] });
+  assert.deepEqual(await repository.exportData(), { schemaVersion: 3, memories: {}, history: [], events: [] });
 });
 
 test("hinted ratings preserve raw UI while lowering FSRS grade", () => {
@@ -446,7 +449,7 @@ test("outcomes map hinted recall to Again without changing observed correctness"
   assert.equal(mapOutcomeToFsrsRating({ correct: true, usedHint: false, struggled: false }), Rating.Good);
 });
 
-test("viewing the answer is not a manual hint in FSRS memory statistics", () => {
+test("viewing the answer before response maps FSRS rating to Again while recording revealed answer", () => {
   const result = reviewWordMemory(
     createWordMemory("answer-shown", "unit-1", now),
     "good",
@@ -455,11 +458,12 @@ test("viewing the answer is not a manual hint in FSRS memory statistics", () => 
     undefined,
     { reviewFormat: "jp-to-zh", correct: true, usedHint: false, answerRevealed: true },
   );
-  assert.equal(result.history.fsrsRating, 3);
-  assert.equal(result.memory.lastFsrsRating, 3);
-  assert.equal(result.memory.lapseCount, 0);
+  assert.equal(result.history.fsrsRating, 1);
+  assert.equal(result.memory.lastFsrsRating, 1);
+  assert.equal(result.memory.lapseCount, 1);
   assert.equal(result.memory.hintedCorrectCount, 0);
   assert.equal(result.event.correct, true);
+  assert.equal(result.event.ratingMappingReason, "answer_revealed");
 });
 
 test("manual hints still lower FSRS and appear in unit hint statistics", () => {
@@ -832,7 +836,7 @@ test("different skills use separate memory records", async () => {
 test("migration adds skill-safe keys and preserves old records", () => {
   const record = createWordMemory("legacy-word", "unit-1", now);
   const migrated = migrateMemoryData({ schemaVersion: 1, memories: { "legacy-word": record }, history: [] }, now);
-  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.schemaVersion, 3);
   assert.equal(migrated.memories["legacy-word:jp_to_meaning"].skill, "jp_to_meaning");
   assert.deepEqual(migrated.events, []);
   const normalized = migrateWordMemoryRecord({ wordId: "x", unitId: "u", reviewCount: 2, independentCorrectCount: 99 }, now);
@@ -1060,4 +1064,419 @@ test("context-aware validation rejects unknown ids, empty text, contradictions, 
   assert.equal(validateLearningAnalysisForContext({ ...valid, findings: [{ ...valid.findings[0], reason: "" }] }, input), false);
   assert.equal(validateLearningAnalysisForContext({ ...valid, overallStatus: "overloaded" }, input), false);
   assert.equal(validateLearningAnalysisForContext({ ...valid, due: "2026-09-01T00:00:00.000Z" }, input), false);
+});
+
+test("deriveReviewEvidence evaluates rating table correctly", () => {
+  // slow independent Good
+  const slowGood = deriveReviewEvidence({
+    rawUserRating: "good",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scheduled",
+    fsrsUpdateEligible: true,
+    responseTimeMs: 9500,
+  });
+  assert.equal(slowGood.updatesFsrs, true);
+  assert.equal(slowGood.effectiveFsrsRating, 3);
+  assert.equal(slowGood.recalledIndependently, true);
+
+  // hint + Good
+  const hintGood = deriveReviewEvidence({
+    rawUserRating: "good",
+    correct: true,
+    usedHint: true,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scheduled",
+    fsrsUpdateEligible: true,
+  });
+  assert.equal(hintGood.updatesFsrs, true);
+  assert.equal(hintGood.effectiveFsrsRating, 1);
+  assert.equal(hintGood.reason, "manual_hint");
+  assert.equal(hintGood.recalledIndependently, false);
+
+  // reveal + Easy
+  const revealEasy = deriveReviewEvidence({
+    rawUserRating: "easy",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: true,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scheduled",
+    fsrsUpdateEligible: true,
+  });
+  assert.equal(revealEasy.updatesFsrs, true);
+  assert.equal(revealEasy.effectiveFsrsRating, 1);
+  assert.equal(revealEasy.reason, "answer_revealed");
+  assert.equal(revealEasy.recalledIndependently, false);
+
+  // incorrect + Good
+  const incorrectGood = deriveReviewEvidence({
+    rawUserRating: "good",
+    correct: false,
+    usedHint: false,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scheduled",
+    fsrsUpdateEligible: true,
+  });
+  assert.equal(incorrectGood.updatesFsrs, true);
+  assert.equal(incorrectGood.effectiveFsrsRating, 1);
+  assert.equal(incorrectGood.reason, "incorrect");
+  assert.equal(incorrectGood.recalledIndependently, false);
+
+  // early retry / scaffold
+  const scaffold = deriveReviewEvidence({
+    rawUserRating: "good",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scaffold",
+    fsrsUpdateEligible: false,
+  });
+  assert.equal(scaffold.updatesFsrs, false);
+  assert.equal(scaffold.effectiveFsrsRating, null);
+  assert.equal(scaffold.reason, "instruction_only");
+});
+
+test("cloze post-response feedback is not considered pre-response reveal", () => {
+  const memory = createWordMemory("cloze-feedback", "unit-1", now);
+  const result = reviewWordMemory(memory, "good", 0, now, 2000, {
+    reviewFormat: "cloze",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: true,
+  });
+  assert.equal(result.history.fsrsRating, 3);
+  assert.equal(result.event.ratingMappingReason, "independent_rating");
+  assert.equal(result.event.answerRevealedBeforeResponse, false);
+  assert.equal(result.event.answerFeedbackShownAfterResponse, true);
+});
+
+test("slow independent Good stays FSRS Good and records slow_recall errorType", () => {
+  const memory = createWordMemory("slow-good", "unit-1", now);
+  const result = reviewWordMemory(memory, "good", 0, now, 12000, {
+    reviewFormat: "jp-to-zh",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: false,
+    errorTypes: ["slow_recall"],
+  });
+  assert.equal(result.history.fsrsRating, 3);
+  assert.equal(result.event.effectiveFsrsRating, 3);
+  assert.deepEqual(result.event.errorTypes, ["slow_recall"]);
+});
+
+test("revealed Easy preserves raw Easy while assigning FSRS Again", () => {
+  const memory = createWordMemory("revealed-easy", "unit-1", now);
+  const result = reviewWordMemory(memory, "easy", 0, now, 3000, {
+    reviewFormat: "jp-to-zh",
+    correct: true,
+    usedHint: false,
+    answerRevealedBeforeResponse: true,
+  });
+  assert.equal(result.history.rawRating, "easy");
+  assert.equal(result.history.fsrsRating, 1);
+  assert.equal(result.event.rawUserRating, "easy");
+  assert.equal(result.event.effectiveFsrsRating, 1);
+  assert.equal(result.event.ratingMappingReason, "answer_revealed");
+});
+
+test("reviewWordMemory rejects telemetry-only decisions with an explicit error", () => {
+  const memory = createWordMemory("scaffold-card", "unit-1", now);
+  assert.throws(
+    () => reviewWordMemory(memory, "good", 0, now, 1000, {
+      reviewFormat: "jp-to-zh",
+      fsrsUpdateEligible: false,
+      attemptKind: "scaffold",
+    }),
+    /被非 FSRS 測量呼叫/,
+  );
+});
+
+test("createTelemetryOnlyReviewEvent returns null FSRS rating and preserves memory untouched", () => {
+  const memory = createWordMemory("telemetry-only", "unit-1", now);
+  const originalDue = memory.fsrsCard.due;
+  const originalReviewCount = memory.reviewCount;
+  const event = createTelemetryOnlyReviewEvent(memory, "good", 0, now, 1500, {
+    reviewFormat: "jp-to-zh",
+    fsrsUpdateEligible: false,
+    attemptKind: "scaffold",
+  });
+  assert.equal(event.fsrsRating, null);
+  assert.equal(event.effectiveFsrsRating, null);
+  assert.equal(event.attemptKind, "scaffold");
+  assert.equal(memory.reviewCount, originalReviewCount);
+  assert.equal(memory.fsrsCard.due, originalDue);
+});
+
+test("migration to v3 records legacy_unknown for missing reveal semantics without fabricating data", () => {
+  const legacyData = {
+    schemaVersion: 2,
+    memories: {},
+    history: [{
+      id: "hist-1",
+      wordId: "word-1",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: now.toISOString(),
+      rawRating: "good",
+      hintLevel: 0,
+      correct: true,
+      dueAfter: now.toISOString(),
+      fsrsRating: 3,
+    }],
+    events: [{
+      id: "ev-1",
+      wordId: "word-1",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: now.toISOString(),
+      correct: true,
+      recalledWithoutHint: true,
+      hintLevel: 0,
+      usedHint: false,
+      answerRevealed: false,
+      fsrsRating: 3,
+      reviewCountBefore: 0,
+    }],
+  };
+  const migrated = migrateMemoryData(legacyData, now);
+  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.history[0].ratingMappingReason, "legacy_unknown");
+  assert.equal(migrated.events[0].ratingMappingReason, "legacy_unknown");
+  assert.equal(migrated.events[0].answerRevealedBeforeResponse, undefined);
+});
+
+test("calculateSkillMastery keeps unseen skill as unknown rather than 0%", () => {
+  const snapshot = calculateSkillMastery(undefined, [], now, MASTERY_POLICY_V1, "meaning_to_jp");
+  assert.equal(snapshot.band, "unknown");
+  assert.equal(snapshot.confidence, "low");
+  assert.equal(snapshot.retrievabilityNow, null);
+  assert.equal(snapshot.retrievabilityAtHorizon, null);
+  assert.equal(snapshot.independentAttempts, 0);
+});
+
+test("calculateSkillMastery counts hinted/revealed success as assisted only", () => {
+  const memory = createWordMemory("assist-word", "unit-1", now, "jp_to_meaning");
+  const event1 = {
+    id: "e1",
+    wordId: "assist-word",
+    unitId: "unit-1",
+    skill: "jp_to_meaning",
+    reviewedAt: now.toISOString(),
+    correct: true,
+    recalledWithoutHint: false,
+    hintLevel: 1,
+    usedHint: true,
+    responseMs: 1200,
+    errorTypes: [],
+    predictedRecallBeforeReview: 0.8,
+    fsrsRating: 1,
+    reviewCountBefore: 0,
+  };
+  const event2 = {
+    id: "e2",
+    wordId: "assist-word",
+    unitId: "unit-1",
+    skill: "jp_to_meaning",
+    reviewedAt: new Date(now.getTime() + 1000).toISOString(),
+    correct: true,
+    recalledWithoutHint: false,
+    hintLevel: 0,
+    usedHint: false,
+    answerRevealedBeforeResponse: true,
+    responseMs: 1200,
+    errorTypes: [],
+    predictedRecallBeforeReview: 0.8,
+    fsrsRating: 1,
+    reviewCountBefore: 1,
+  };
+  memory.reviewCount = 2;
+  const snapshot = calculateSkillMastery(memory, [event1, event2], now, MASTERY_POLICY_V1, "jp_to_meaning");
+  assert.equal(snapshot.assistedSuccesses, 2);
+  assert.equal(snapshot.independentSuccesses, 0);
+  assert.equal(snapshot.independentAttempts, 0);
+});
+
+test("calculateSkillMastery computes response trend with 3+ independent samples", () => {
+  const memory = createWordMemory("trend-word", "unit-1", now, "jp_to_meaning");
+  memory.reviewCount = 3;
+  const makeEvent = (index, ms) => ({
+    id: `ev-${index}`,
+    wordId: "trend-word",
+    unitId: "unit-1",
+    skill: "jp_to_meaning",
+    reviewedAt: new Date(now.getTime() + index * 10000).toISOString(),
+    correct: true,
+    recalledWithoutHint: true,
+    hintLevel: 0,
+    responseMs: ms,
+    errorTypes: [],
+    predictedRecallBeforeReview: 0.9,
+    fsrsRating: 3,
+    reviewCountBefore: index,
+  });
+
+  // 2 samples: trend is unknown
+  const snapshot2 = calculateSkillMastery(memory, [makeEvent(0, 1000), makeEvent(1, 2000)], now, MASTERY_POLICY_V1, "jp_to_meaning");
+  assert.equal(snapshot2.responseTrend, "unknown");
+
+  // 3 samples slowing down: 1000 -> 1500 -> 2000
+  const snapshot3Slower = calculateSkillMastery(memory, [makeEvent(0, 1000), makeEvent(1, 1500), makeEvent(2, 2000)], now, MASTERY_POLICY_V1, "jp_to_meaning");
+  assert.equal(snapshot3Slower.responseTrend, "slower");
+
+  // 3 samples speeding up: 2000 -> 1500 -> 1000
+  const snapshot3Faster = calculateSkillMastery(memory, [makeEvent(0, 2000), makeEvent(1, 1500), makeEvent(2, 1000)], now, MASTERY_POLICY_V1, "jp_to_meaning");
+  assert.equal(snapshot3Faster.responseTrend, "faster");
+});
+
+test("calculateVocabularyMastery detects cross-skill disagreement while preserving independent states", () => {
+  const receptiveMemory = createWordMemory("disagree-word", "unit-1", now, "jp_to_meaning");
+  // Set receptive memory as mature and strong
+  receptiveMemory.reviewCount = 5;
+  receptiveMemory.independentCorrectCount = 5;
+  receptiveMemory.fsrsCard.state = 2;
+  receptiveMemory.fsrsCard.stability = 30;
+  receptiveMemory.fsrsCard.difficulty = 3;
+  receptiveMemory.fsrsCard.due = new Date(now.getTime() + 15 * 86_400_000).toISOString();
+  receptiveMemory.fsrsCard.last_review = new Date(now.getTime() - 1 * 86_400_000).toISOString();
+
+  // Create 5 independent receptive events
+  const receptiveEvents = Array.from({ length: 5 }, (_, i) => ({
+    id: `rec-${i}`,
+    wordId: "disagree-word",
+    unitId: "unit-1",
+    skill: "jp_to_meaning",
+    reviewedAt: new Date(now.getTime() - (5 - i) * 86_400_000).toISOString(),
+    correct: true,
+    recalledWithoutHint: true,
+    hintLevel: 0,
+    responseMs: 1200,
+    errorTypes: [],
+    predictedRecallBeforeReview: 0.9,
+    fsrsRating: 3,
+    reviewCountBefore: i,
+  }));
+
+  // Set productive memory as struggling
+  const productiveMemory = createWordMemory("disagree-word", "unit-1", now, "meaning_to_jp");
+  productiveMemory.reviewCount = 3;
+  productiveMemory.independentCorrectCount = 0;
+  productiveMemory.lapseCount = 3;
+  productiveMemory.fsrsCard.stability = 0.5;
+  productiveMemory.fsrsCard.difficulty = 8;
+  productiveMemory.fsrsCard.due = now.toISOString();
+
+  const productiveEvents = Array.from({ length: 3 }, (_, i) => ({
+    id: `prod-${i}`,
+    wordId: "disagree-word",
+    unitId: "unit-1",
+    skill: "meaning_to_jp",
+    reviewedAt: new Date(now.getTime() - (3 - i) * 86_400_000).toISOString(),
+    correct: false,
+    recalledWithoutHint: true,
+    hintLevel: 0,
+    responseMs: 4000,
+    errorTypes: ["meaning"],
+    predictedRecallBeforeReview: 0.4,
+    fsrsRating: 1,
+    reviewCountBefore: i,
+  }));
+
+  const vocabMastery = calculateVocabularyMastery(
+    "disagree-word",
+    [receptiveMemory, productiveMemory],
+    [...receptiveEvents, ...productiveEvents],
+    now,
+  );
+
+  assert.equal(vocabMastery.receptive.band, "likely_familiar");
+  assert.equal(vocabMastery.productive.band, "likely_unfamiliar");
+  assert.equal(vocabMastery.contextual.band, "unknown");
+  assert.equal(vocabMastery.crossSkillDisagreement, true);
+  assert.equal(vocabMastery.unfamiliarityBand, "likely_unfamiliar");
+});
+
+test("two independent signal families produce high weakness risk with sufficient confidence", () => {
+  const memory = createWordMemory("high-risk-word", "unit-1", now, "jp_to_meaning");
+  memory.reviewCount = 4;
+  memory.fsrsCard.stability = 1;
+  memory.fsrsCard.difficulty = 7;
+  // Due soon or low horizon retrievability
+  memory.fsrsCard.due = new Date(now.getTime() + 1 * 86_400_000).toISOString();
+
+  // Family 1: Slower response trend (1000 -> 1800 -> 2500)
+  // Family 2: Recent independent failure (last attempt failed)
+  const events = [
+    {
+      id: "e1",
+      wordId: "high-risk-word",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: new Date(now.getTime() - 30000).toISOString(),
+      correct: true,
+      recalledWithoutHint: true,
+      hintLevel: 0,
+      responseMs: 1000,
+      errorTypes: [],
+      predictedRecallBeforeReview: 0.9,
+      fsrsRating: 3,
+      reviewCountBefore: 0,
+    },
+    {
+      id: "e2",
+      wordId: "high-risk-word",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: new Date(now.getTime() - 20000).toISOString(),
+      correct: true,
+      recalledWithoutHint: true,
+      hintLevel: 0,
+      responseMs: 1800,
+      errorTypes: [],
+      predictedRecallBeforeReview: 0.8,
+      fsrsRating: 3,
+      reviewCountBefore: 1,
+    },
+    {
+      id: "e3",
+      wordId: "high-risk-word",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: new Date(now.getTime() - 10000).toISOString(),
+      correct: true,
+      recalledWithoutHint: true,
+      hintLevel: 0,
+      responseMs: 2500,
+      errorTypes: [],
+      predictedRecallBeforeReview: 0.7,
+      fsrsRating: 3,
+      reviewCountBefore: 2,
+    },
+    {
+      id: "e4",
+      wordId: "high-risk-word",
+      unitId: "unit-1",
+      skill: "jp_to_meaning",
+      reviewedAt: now.toISOString(),
+      correct: false,
+      recalledWithoutHint: true,
+      hintLevel: 0,
+      responseMs: 3000,
+      errorTypes: ["meaning"],
+      predictedRecallBeforeReview: 0.6,
+      fsrsRating: 1,
+      reviewCountBefore: 3,
+    },
+  ];
+
+  const vocabMastery = calculateVocabularyMastery("high-risk-word", [memory], events, now);
+  assert.equal(vocabMastery.confidence, "medium");
+  assert.equal(vocabMastery.weaknessRisk, "high");
+  assert.ok(vocabMastery.reasons.length >= 2);
 });

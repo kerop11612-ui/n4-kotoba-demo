@@ -1,22 +1,25 @@
-﻿import type { HintLevel, ReviewRating } from "./types.ts";
+import type { HintLevel, ReviewRating } from "./types.ts";
 
 import { Rating } from "ts-fsrs";
 import type { ReviewOutcome } from "./types.ts";
+import { deriveReviewEvidence } from "./review-evidence.ts";
 
 export function mapHintedRating(
   rawRating: ReviewRating,
   hintLevel: HintLevel,
   usedHint = hintLevel > 0,
 ): 1 | 2 | 3 | 4 {
-  if (rawRating === "again") return 1;
-  if (usedHint) return 1;
-  const map: Record<ReviewRating, 1 | 2 | 3 | 4> = {
-    again: 1,
-    hard: 2,
-    good: 3,
-    easy: 4,
-  };
-  return map[rawRating];
+  const decision = deriveReviewEvidence({
+    rawUserRating: rawRating,
+    correct: rawRating !== "again",
+    usedHint,
+    answerRevealedBeforeResponse: false,
+    answerFeedbackShownAfterResponse: false,
+    attemptKind: "scheduled",
+    fsrsUpdateEligible: true,
+    responseTimeMs: 0,
+  });
+  return (decision.effectiveFsrsRating ?? 1) as 1 | 2 | 3 | 4;
 }
 
 /**
@@ -29,3 +32,4 @@ export function mapOutcomeToFsrsRating(outcome: ReviewOutcome): Rating {
   if (outcome.struggled) return Rating.Hard;
   return Rating.Good;
 }
+

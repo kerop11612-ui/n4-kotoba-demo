@@ -7,6 +7,7 @@ import { makePracticeItemId } from "./practice-plan.ts";
 
 export type StoredPracticeSession = {
   version: 2;
+  sessionId?: string;
   mode: PracticeMode;
   items: PracticePlanItem[];
   index: number;
@@ -16,6 +17,7 @@ export type StoredPracticeSession = {
 
 type StoredPracticeSessionV1 = {
   version: 1;
+  sessionId?: string;
   format: ReviewFormat;
   wordRefs: PracticeWordRef[];
   index: number;

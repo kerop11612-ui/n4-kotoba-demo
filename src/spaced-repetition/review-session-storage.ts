@@ -13,6 +13,7 @@ export type StoredReviewSessionResult = {
 };
 
 export type StoredReviewSession = {
+  sessionId?: string;
   chapter: number;
   section: number;
   format: ReviewFormat;

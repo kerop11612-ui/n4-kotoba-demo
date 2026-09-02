@@ -13,8 +13,11 @@ function weakestMemory(
 ): WordMemoryRecord {
   const memories = PRINT_SKILLS
     .map((skill) => memoriesByKey.get(getMemoryKey(word.id, skill)))
-    .filter((memory): memory is WordMemoryRecord => Boolean(memory));
-  if (!memories.length) return createWordMemory(word.id, `${word.chapterNumber}-${word.sectionNumber}`, now, "jp_to_meaning");
+    .filter((memory): memory is WordMemoryRecord => Boolean(memory && memory.reviewCount > 0));
+  if (!memories.length) {
+    const existing = PRINT_SKILLS.map((skill) => memoriesByKey.get(getMemoryKey(word.id, skill))).find(Boolean);
+    return existing ?? createWordMemory(word.id, `${word.chapterNumber}-${word.sectionNumber}`, now, "jp_to_meaning");
+  }
   return memories.sort((a, b) => currentRetrievability(a, now) - currentRetrievability(b, now))[0];
 }
 

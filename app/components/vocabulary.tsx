@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import styles from "../demo.module.css";
+import styles from "./icons.module.css";
 import type { VocabularyWord } from "../../src/vocabulary/types";
 
 export type DemoWord = VocabularyWord;

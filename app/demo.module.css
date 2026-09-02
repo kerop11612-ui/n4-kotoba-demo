@@ -733,6 +733,56 @@
   box-shadow: 0 8px 24px rgba(64, 53, 42, 0.05);
 }
 
+.wordSkillsDetails {
+  margin: 0 18px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.wordSkillsSummary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wordSkillsSummary::-webkit-details-marker { display: none; }
+.wordSkillsSummary::after { content: "＋"; color: var(--accent); }
+.wordSkillsDetails[open] .wordSkillsSummary::after { content: "－"; }
+.wordSkillsSummary:focus-visible {
+  border-radius: 6px;
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.wordSkillsGrid {
+  display: grid;
+  gap: 0;
+  padding: 2px 0 10px;
+}
+
+.wordSkillRow {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px dashed var(--line-soft);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wordSkillRow strong {
+  color: var(--ink);
+  font-size: 12px;
+  text-align: right;
+}
+
 .card::before {
   width: 2px;
   position: absolute;
@@ -878,8 +928,8 @@
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--muted);
-  padding: 0 11px;
-  font-size: 12px;
+  padding: 0 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -2174,6 +2224,10 @@
   .wordCount {
     display: block;
     margin-top: 10px;
+  }
+
+  .wordNumber {
+    display: none;
   }
 
   .nowPlaying {

@@ -1,6 +1,8 @@
-import { reviewWordMemory, createWordMemory } from "../spaced-repetition/fsrs-adapter.ts";
+import { reviewWordMemory, createWordMemory, createTelemetryOnlyReviewEvent } from "../spaced-repetition/fsrs-adapter.ts";
 import { setManualMastery } from "../spaced-repetition/mastery.ts";
 import { getMemoryKey, type MemoryRepositoryData, type ReviewFormat } from "../spaced-repetition/types.ts";
+import { deriveReviewEvidence } from "../spaced-repetition/review-evidence.ts";
+import { getSchedulerProfile } from "../spaced-repetition/scheduler-profile.ts";
 import { compareEvents, deduplicateEvents, type LearningEvent, type ReviewLearningEvent } from "./learning-events.ts";
 
 export function replayLearningEvents(events: LearningEvent[]): MemoryRepositoryData {
@@ -29,8 +31,8 @@ export function replayLearningEvents(events: LearningEvent[]): MemoryRepositoryD
       const occurredAt = new Date(event.occurredAt);
       if (event.type === "review") {
         const result = replayReview(memory, event);
-        memory = result.memory;
-        history.push(result.history);
+        if (result.memory) memory = result.memory;
+        if (result.history) history.push(result.history);
         reviewEvents.push(result.event);
       } else {
         memory = setManualMastery(memory, event.payload.mastered, occurredAt);
@@ -41,7 +43,7 @@ export function replayLearningEvents(events: LearningEvent[]): MemoryRepositoryD
 
   history.sort((left, right) => Date.parse(left.reviewedAt) - Date.parse(right.reviewedAt) || left.id.localeCompare(right.id));
   reviewEvents.sort((left, right) => Date.parse(left.reviewedAt) - Date.parse(right.reviewedAt) || left.id.localeCompare(right.id));
-  return { schemaVersion: 2, memories, history, events: reviewEvents };
+  return { schemaVersion: 3, memories, history, events: reviewEvents };
 }
 
 function latestSnapshot(events: LearningEvent[]) {
@@ -53,25 +55,71 @@ function latestSnapshot(events: LearningEvent[]) {
 
 function replayReview(memory: MemoryRepositoryData["memories"][string], event: ReviewLearningEvent) {
   const payload = event.payload;
+  // Validate profile if present
+  if (payload.schedulerProfileId) {
+    getSchedulerProfile(payload.schedulerProfileId);
+  }
+  const attemptKind = payload.attemptKind ?? "scheduled";
+  const usedHint = payload.usedHint ?? payload.hintLevel > 0;
+  const answerRevealedBeforeResponse = payload.answerRevealedBeforeResponse ?? false;
+  const answerFeedbackShownAfterResponse = payload.answerFeedbackShownAfterResponse ?? false;
+  const correct = payload.correct ?? payload.rawRating !== "again";
+  const fsrsUpdateEligible = payload.effectiveFsrsRating !== null && (attemptKind === "scheduled" || attemptKind === "diagnostic");
+
+  const evidence = deriveReviewEvidence({
+    rawUserRating: payload.rawUserRating ?? payload.rawRating,
+    correct,
+    usedHint,
+    answerRevealedBeforeResponse,
+    answerFeedbackShownAfterResponse,
+    attemptKind,
+    fsrsUpdateEligible,
+    responseTimeMs: payload.responseTimeMs ?? 0,
+  });
+
+  const reviewContext = {
+    eventId: event.id,
+    reviewFormat: payload.reviewFormat as ReviewFormat,
+    skill: event.skill,
+    answerCorrect: payload.answerCorrect,
+    answerAttempts: payload.answerAttempts,
+    usedHint,
+    answerRevealed: payload.answerRevealed,
+    answerRevealedBeforeResponse,
+    answerFeedbackShownAfterResponse,
+    correct,
+    recalledWithoutHint: payload.recalledWithoutHint,
+    responseTimeMs: payload.responseTimeMs,
+    errorTypes: payload.errorTypes,
+    confusedWordIds: payload.confusedWordIds,
+    rawUserRating: payload.rawUserRating ?? payload.rawRating,
+    effectiveFsrsRating: payload.effectiveFsrsRating,
+    ratingMappingReason: payload.ratingMappingReason ?? evidence.reason,
+    attemptKind,
+    scheduledAt: payload.scheduledAt,
+    sessionId: payload.sessionId,
+    schedulerProfileId: payload.schedulerProfileId,
+    fsrsUpdateEligible,
+  };
+
+  if (!evidence.updatesFsrs) {
+    const teleEvent = createTelemetryOnlyReviewEvent(
+      memory,
+      payload.rawRating,
+      payload.hintLevel,
+      new Date(event.occurredAt),
+      payload.responseTimeMs,
+      reviewContext,
+    );
+    return { memory: null, history: null, event: teleEvent };
+  }
+
   return reviewWordMemory(
     memory,
     payload.rawRating,
     payload.hintLevel,
     new Date(event.occurredAt),
     payload.responseTimeMs,
-    {
-      eventId: event.id,
-      reviewFormat: payload.reviewFormat as ReviewFormat,
-      skill: event.skill,
-      answerCorrect: payload.answerCorrect,
-      answerAttempts: payload.answerAttempts,
-      usedHint: payload.usedHint,
-      answerRevealed: payload.answerRevealed,
-      correct: payload.correct,
-      recalledWithoutHint: payload.recalledWithoutHint,
-      responseTimeMs: payload.responseTimeMs,
-      errorTypes: payload.errorTypes,
-      confusedWordIds: payload.confusedWordIds,
-    },
+    reviewContext,
   );
 }

@@ -17,7 +17,7 @@ const items: Array<{ href: string; key: AppNavItem; label: string }> = [
 export function AppNav({ active }: AppNavProps) {
   return (
     <nav className={styles.nav} aria-label="主要導覽">
-      <Link className={styles.brand} href="/">
+      <Link className={styles.brand} href="/" prefetch={false}>
         <span className={styles.brandMark}>N4</span>
         <span className={styles.brandText}>
           <strong>N4 ことば帳</strong>
@@ -29,6 +29,7 @@ export function AppNav({ active }: AppNavProps) {
           <Link
             className={item.key === active ? `${styles.link} ${styles.active}` : styles.link}
             href={item.href}
+            prefetch={false}
             key={item.key}
             aria-current={item.key === active ? "page" : undefined}
           >

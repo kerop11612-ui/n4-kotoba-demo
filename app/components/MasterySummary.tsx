@@ -6,10 +6,6 @@ type MasterySummaryProps = {
 };
 
 export function MasterySummary({ stats }: MasterySummaryProps) {
-  const retentionLabel = stats.masteryDataReady ? `${stats.masteryPercent}%` : "資料累積中";
-  const retentionNote = stats.masteryDataReady
-    ? `預估 ${stats.horizonDays} 天後保持率`
-    : `已有 ${stats.masteryReadyWords} / ${stats.reviewedWords} 個單字達到 3 次複習`;
   const statusCounts = stats.learningStatusCounts;
   const plan = statusCounts["需要加強"] > 0
     ? `先練 ${statusCounts["需要加強"]} 個需要加強的單字`
@@ -21,29 +17,38 @@ export function MasterySummary({ stats }: MasterySummaryProps) {
   return (
     <div className={styles.masterySummary} aria-label="單元學習統計">
       <div className={styles.masteryMain}>
-        <span>30 天預估保持率</span>
-        <strong>{retentionLabel}</strong>
-        <small>{retentionNote}・目前記憶率 {stats.currentRecallPercent}%</small>
-        <progress value={stats.masteryDataReady ? stats.masteryPercent : 0} max={100} aria-label="30 天預估保持率" />
+        <span>本單元進度</span>
+        <strong>已複習 {stats.reviewedWords} / {stats.totalWords} 個</strong>
+        {stats.masteryDataReady && <small>30 天保持率 {stats.masteryPercent}%</small>}
+        <progress value={stats.coveragePercent} max={100} aria-label="已複習覆蓋率" />
       </div>
-      <span className={styles.masteryReviewed}>已複習 {stats.reviewedWords} / {stats.totalWords} 個</span>
       <section className={styles.practicePlan} aria-label="今天怎麼練">
         <div className={styles.practicePlanHeader}>
           <span>今天怎麼練</span>
           <strong>{plan}</strong>
         </div>
-        <div className={styles.practicePlanSteps}>
-          <span className={styles.practicePlanNeeds}>需要加強 <b>{statusCounts["需要加強"]}</b></span>
-          <span className={styles.practicePlanLearning}>學習中 <b>{statusCounts["學習中"]}</b></span>
-          <span className={styles.practicePlanFresh}>尚未練習 <b>{statusCounts["尚未練習"]}</b></span>
-          <span className={styles.practicePlanStable}>已熟悉 <b>{statusCounts["已熟悉"]}</b></span>
-          <span className={styles.practicePlanManual}>手動已學會 <b>{statusCounts["手動已學會"]}</b></span>
-        </div>
       </section>
       <details className={styles.masteryDetails}>
-        <summary>查看全部統計</summary>
+        <summary>查看詳細統計</summary>
         <div className={styles.masteryDetailGrid}>
+          <div>
+            <span>30 天保持率</span>
+            <strong>{stats.masteryDataReady ? `${stats.masteryPercent}%` : "尚在建立"}</strong>
+            {!stats.masteryDataReady && (
+              <small>
+                {stats.reviewedWords === 0
+                  ? "完成第一次複習後開始累積"
+                  : `已有 ${stats.masteryReadyWords} / ${stats.reviewedWords} 個已複習單字完成 3 次複習`}
+              </small>
+            )}
+          </div>
+          <div><span>目前記憶率</span><strong>{stats.reviewedWords === 0 ? "尚未評估" : `${stats.currentRecallPercent}%`}</strong></div>
           <div><span>已複習單字</span><strong>{stats.reviewedWords} / {stats.totalWords}</strong></div>
+          <div><span>需要加強</span><strong>{statusCounts["需要加強"]}</strong></div>
+          <div><span>學習中</span><strong>{statusCounts["學習中"]}</strong></div>
+          <div><span>尚未練習</span><strong>{statusCounts["尚未練習"]}</strong></div>
+          <div><span>已熟悉</span><strong>{statusCounts["已熟悉"]}</strong></div>
+          <div><span>手動已學會</span><strong>{statusCounts["手動已學會"]}</strong></div>
           <div><span>獨立回想成功</span><strong>{stats.independentRecallRatePercent === null ? "—" : `${stats.independentRecallRatePercent}%`}</strong></div>
           <div><span>非獨立回想比例</span><strong>{stats.hintDependencyPercent === null ? "—" : `${stats.hintDependencyPercent}%`}</strong></div>
           <div><span>今日到期</span><strong>{stats.dueToday}</strong></div>

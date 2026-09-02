@@ -3,7 +3,7 @@ import { getMemoryKey, type MemoryRepositoryData, type ReviewHistoryRecord, type
 import { MEMORY_SCHEMA_VERSION } from "./memory-migration.ts";
 
 export type MemoryDataImportSummary = {
-  format: "legacy" | "v1" | "v2";
+  format: "legacy" | "v1" | "v2" | "v3";
   memories: number;
   history: number;
   events: number;
@@ -30,7 +30,7 @@ export function isImportableMemoryData(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   if ("schemaVersion" in candidate || "memories" in candidate || "history" in candidate || "events" in candidate) {
-    if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== MEMORY_SCHEMA_VERSION) return false;
+    if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2 && candidate.schemaVersion !== MEMORY_SCHEMA_VERSION) return false;
     if (!isRecord(candidate.memories)) return false;
     const memoryEntries = Object.entries(candidate.memories);
     if (memoryEntries.length === 0 || !memoryEntries.every(([key, item]) => isVersionedMemoryRecord(key, item))) return false;
@@ -44,7 +44,7 @@ export function isImportableMemoryData(value: unknown): boolean {
 
 export function getMemoryDataImportSummary(value: unknown): MemoryDataImportSummary | null {
   if (!isImportableMemoryData(value) || !isRecord(value)) return null;
-  if (value.schemaVersion === 1 || value.schemaVersion === MEMORY_SCHEMA_VERSION) {
+  if (value.schemaVersion === 1 || value.schemaVersion === 2 || value.schemaVersion === MEMORY_SCHEMA_VERSION) {
     return {
       format: `v${value.schemaVersion}`,
       memories: Object.keys(value.memories as object).length,
@@ -87,7 +87,7 @@ function isImportableEventRecord(value: unknown): boolean {
     && isIsoDate(value.reviewedAt)
     && isMemorySkill(value.skill)
     && isHintLevel(value.hintLevel)
-    && isFsrsRating(value.fsrsRating);
+    && (isFsrsRating(value.fsrsRating) || value.fsrsRating === null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -12,7 +12,7 @@ import type {
 import { getMemoryKey } from "../spaced-repetition/types.ts";
 import { MANUAL_MASTERY_MATURE_REVIEW_DAYS, MANUAL_MASTERY_REVIEW_DAYS } from "../spaced-repetition/mastery.ts";
 
-export const MEMORY_SCHEMA_VERSION = 2;
+export const MEMORY_SCHEMA_VERSION = 3;
 
 export class UnsupportedMemorySchemaError extends Error {
   constructor(version: unknown) {
@@ -81,10 +81,10 @@ export function migrateWordMemoryRecord(
 }
 
 export function migrateMemoryData(value: unknown, now = new Date()): MemoryRepositoryData {
-  if (isRecord(value) && "schemaVersion" in value && value.schemaVersion !== 1 && value.schemaVersion !== MEMORY_SCHEMA_VERSION) {
+  if (isRecord(value) && "schemaVersion" in value && value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== MEMORY_SCHEMA_VERSION) {
     throw new UnsupportedMemorySchemaError(value.schemaVersion);
   }
-  if (isRecord(value) && (value.schemaVersion === 1 || value.schemaVersion === MEMORY_SCHEMA_VERSION)) {
+  if (isRecord(value) && (value.schemaVersion === 1 || value.schemaVersion === 2 || value.schemaVersion === MEMORY_SCHEMA_VERSION)) {
     const memories: Record<string, WordMemoryRecord> = {};
     if (isRecord(value.memories)) {
       for (const [key, item] of Object.entries(value.memories)) {
@@ -136,6 +136,15 @@ export function migrateLegacyReviewState(value: unknown, now = new Date()): Memo
 function migrateHistoryRecord(input: unknown): ReviewHistoryRecord | null {
   if (!isRecord(input) || typeof input.wordId !== "string" || !isIsoDate(input.reviewedAt)) return null;
   if (!isReviewRating(input.rawRating) || !isHintLevel(input.hintLevel) || !isFsrsRating(input.fsrsRating)) return null;
+  const answerRevealedBeforeResponse = typeof input.answerRevealedBeforeResponse === "boolean"
+    ? input.answerRevealedBeforeResponse
+    : undefined;
+  const answerFeedbackShownAfterResponse = typeof input.answerFeedbackShownAfterResponse === "boolean"
+    ? input.answerFeedbackShownAfterResponse
+    : undefined;
+  const ratingMappingReason = input.ratingMappingReason !== undefined
+    ? String(input.ratingMappingReason)
+    : (answerRevealedBeforeResponse === undefined ? "legacy_unknown" : undefined);
   return {
     ...input,
     id: stringOr(input.id, `${input.wordId}-${input.reviewedAt}`),
@@ -154,12 +163,24 @@ function migrateHistoryRecord(input: unknown): ReviewHistoryRecord | null {
       : input.correct === true && input.hintLevel === 0,
     errorTypes: Array.isArray(input.errorTypes) ? input.errorTypes.filter(isReviewErrorType) : [],
     confusedWordIds: Array.isArray(input.confusedWordIds) ? input.confusedWordIds.filter((item): item is string => typeof item === "string").slice(0, 3) : [],
+    answerRevealedBeforeResponse,
+    answerFeedbackShownAfterResponse,
+    ratingMappingReason,
   } as ReviewHistoryRecord;
 }
 
 function migrateReviewEvent(input: unknown): VocabularyReviewEvent | null {
   if (!isRecord(input) || typeof input.wordId !== "string" || !isIsoDate(input.reviewedAt)) return null;
-  if (!isMemorySkill(input.skill) || !isHintLevel(input.hintLevel) || !isFsrsRating(input.fsrsRating)) return null;
+  if (!isMemorySkill(input.skill) || !isHintLevel(input.hintLevel) || (!isFsrsRating(input.fsrsRating) && input.fsrsRating !== null)) return null;
+  const answerRevealedBeforeResponse = typeof input.answerRevealedBeforeResponse === "boolean"
+    ? input.answerRevealedBeforeResponse
+    : undefined;
+  const answerFeedbackShownAfterResponse = typeof input.answerFeedbackShownAfterResponse === "boolean"
+    ? input.answerFeedbackShownAfterResponse
+    : undefined;
+  const ratingMappingReason = input.ratingMappingReason !== undefined
+    ? String(input.ratingMappingReason)
+    : (answerRevealedBeforeResponse === undefined ? "legacy_unknown" : undefined);
   return {
     ...input,
     id: stringOr(input.id, `${input.wordId}-${input.reviewedAt}`),
@@ -178,6 +199,9 @@ function migrateReviewEvent(input: unknown): VocabularyReviewEvent | null {
     predictedRecallBeforeReview: clamp(finiteNumber(input.predictedRecallBeforeReview), 0, 1),
     fsrsRating: input.fsrsRating,
     reviewCountBefore: finiteNonNegative(input.reviewCountBefore),
+    answerRevealedBeforeResponse,
+    answerFeedbackShownAfterResponse,
+    ratingMappingReason,
   } as VocabularyReviewEvent;
 }
 

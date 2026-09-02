@@ -6,18 +6,20 @@ import { createMemoryRepository } from "../../src/storage/repository-factory";
 import type { MemoryRepository } from "../../src/storage/memory-repository";
 import { LocalSyncStateStore } from "../../src/sync/local-sync-state";
 import { SyncCoordinator, type SyncStatus } from "../../src/sync/sync-coordinator";
-import { SupabaseEventStore } from "../../src/sync/supabase-event-store";
-import { getSupabaseClient } from "../../src/sync/supabase-client";
 import { SyncingMemoryRepository } from "../../src/sync/syncing-memory-repository";
 import { LearningDataContext, type AuthStatus, type LearningDataContextValue } from "../hooks/useLearningData";
 
+const supabaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+);
+
 export function LearningDataProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const supabase = useMemo(() => getSupabaseClient(), []);
   const [guestRepository] = useState<MemoryRepository>(() => createMemoryRepository(undefined, undefined, "guest"));
   const [repository, setRepository] = useState<MemoryRepository>(guestRepository);
+  const [supabase, setSupabase] = useState<import("@supabase/supabase-js").SupabaseClient | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(supabase ? "local" : "local");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("local");
   const [pendingCount, setPendingCount] = useState(0);
   const stateStoreRef = useRef<LocalSyncStateStore | null>(null);
   const coordinatorRef = useRef<SyncCoordinator | null>(null);
@@ -61,6 +63,7 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
       const stateStore = stateStoreRef.current ?? new LocalSyncStateStore();
       stateStoreRef.current = stateStore;
       const deviceId = stateStore.read(nextUser.id).deviceId;
+      const { SupabaseEventStore } = await import("../../src/sync/supabase-event-store");
       const coordinator = new SyncCoordinator({
         cloud: new SupabaseEventStore(supabase),
         stateStore,
@@ -89,16 +92,36 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
     const initialize = async () => {
       await guestRepository.migrate().catch(() => undefined);
       if (cancelled) return;
-      if (!supabase) {
+      if (!supabaseConfigured) {
         setAuthStatus("signed_out");
         return;
       }
+      try {
+        const { getSupabaseClient } = await import("../../src/sync/supabase-client");
+        const nextSupabase = getSupabaseClient();
+        if (cancelled || !nextSupabase) {
+          if (!cancelled) setAuthStatus("signed_out");
+          return;
+        }
+        setSupabase(nextSupabase);
+      } catch {
+        if (!cancelled) setAuthStatus("signed_out");
+      }
+    };
+    void initialize();
+    return () => { cancelled = true; };
+  }, [guestRepository]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+    const initialize = async () => {
       const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
       if (data.session?.user) await switchToUser(data.session.user);
       else setAuthStatus("signed_out");
     };
     void initialize();
-    if (!supabase) return () => { cancelled = true; };
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) void switchToUser(session.user);
       else void signOutToGuest(user?.id);
@@ -108,7 +131,7 @@ export function LearningDataProvider({ children }: Readonly<{ children: React.Re
       listener.subscription.unsubscribe();
       coordinatorRef.current?.stop();
     };
-  }, [guestRepository, signOutToGuest, supabase, switchToUser, user?.id]);
+  }, [signOutToGuest, supabase, switchToUser, user?.id]);
 
   const sendOtp = useCallback(async (email: string) => {
     if (!supabase) throw new Error("同步服務尚未設定");

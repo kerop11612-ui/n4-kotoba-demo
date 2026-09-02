@@ -1,5 +1,5 @@
 import type { ReviewRating } from "../../src/spaced-repetition/types";
-import styles from "../demo.module.css";
+import styles from "./review.module.css";
 
 type ReviewRatingButtonsProps = {
   disabled: boolean;

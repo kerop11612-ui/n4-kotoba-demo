@@ -17,6 +17,9 @@ export type PracticePlanItem = {
   unitId: string;
   format: ReviewFormat;
   skill: MemorySkill;
+  attemptKind?: import("./review-evidence.ts").ReviewAttemptKind;
+  reason?: import("./meta-scheduler.ts").MetaScheduleReason;
+  scheduledAt?: string;
 };
 
 export function makePracticeItemId(wordId: string, format: ReviewFormat): string {

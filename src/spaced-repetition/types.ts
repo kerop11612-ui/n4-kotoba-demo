@@ -1,4 +1,4 @@
-﻿import type { Card, Grade, State } from "ts-fsrs";
+import type { Card, Grade, State } from "ts-fsrs";
 
 export type MemorySkill =
   | "jp_to_meaning"
@@ -31,6 +31,34 @@ export type HintLevel = 0 | 1 | 2 | 3 | 4;
 export type HintKind = "sentence-cloze" | "sentence-full" | "length" | "kana-1" | "kana-2" | "audio";
 export type ReviewFormat = "jp-to-zh" | "zh-to-jp" | "cloze";
 
+export type {
+  ReviewAttemptKind,
+  RatingMappingReason,
+  ReviewEvidenceInput,
+  ReviewEvidenceDecision,
+} from "./review-evidence.ts";
+export type { FsrsSchedulerProfile } from "./scheduler-profile.ts";
+export type {
+  MasteryBand,
+  EvidenceConfidence,
+  ResponseTrend,
+  CoreMasterySkill,
+  SkillMasterySnapshot,
+  MasteryPolicy,
+} from "./skill-mastery.ts";
+export type {
+  WeaknessRisk,
+  VocabularyMastery,
+} from "./vocabulary-mastery.ts";
+export type {
+  LeechState,
+  LeechSnapshot,
+} from "./leech-state.ts";
+export type {
+  MetaScheduleReason,
+  MetaScheduleCandidate,
+} from "./meta-scheduler.ts";
+
 export interface ReviewContext {
   eventId?: string;
   reviewFormat: ReviewFormat;
@@ -39,12 +67,23 @@ export interface ReviewContext {
   answerAttempts?: number;
   usedHint?: boolean;
   answerRevealed?: boolean;
+  answerRevealedBeforeResponse?: boolean;
+  answerFeedbackShownAfterResponse?: boolean;
   correct?: boolean;
   recalledWithoutHint?: boolean;
   responseTimeMs?: number;
   errorTypes?: ReviewErrorType[];
   hintKinds?: HintKind[];
   confusedWordIds?: string[];
+  rawUserRating?: ReviewRating;
+  effectiveFsrsRating?: 1 | 2 | 3 | 4 | null;
+  ratingMappingReason?: import("./review-evidence.ts").RatingMappingReason;
+  attemptKind?: import("./review-evidence.ts").ReviewAttemptKind;
+  scheduledAt?: string;
+  sessionId?: string;
+  schedulerProfileId?: string;
+  fsrsUpdateEligible?: boolean;
+  selectionReason?: import("./meta-scheduler.ts").MetaScheduleReason;
 }
 
 export type SerializedFsrsCard = Omit<Card, "due" | "last_review"> & {
@@ -86,6 +125,8 @@ export interface ReviewHistoryRecord {
   answerAttempts?: number;
   usedHint?: boolean;
   answerRevealed?: boolean;
+  answerRevealedBeforeResponse?: boolean;
+  answerFeedbackShownAfterResponse?: boolean;
   responseTimeMs?: number;
   correct?: boolean;
   recalledWithoutHint?: boolean;
@@ -100,11 +141,20 @@ export interface ReviewHistoryRecord {
   difficultyAfter?: number;
   dueBefore?: string;
   dueAfter?: string;
+  rawUserRating?: ReviewRating;
+  effectiveFsrsRating?: 1 | 2 | 3 | 4 | null;
+  ratingMappingReason?: import("./review-evidence.ts").RatingMappingReason;
+  attemptKind?: import("./review-evidence.ts").ReviewAttemptKind;
+  scheduledAt?: string;
+  sessionId?: string;
+  schedulerProfileId?: string;
+  selectionReason?: import("./meta-scheduler.ts").MetaScheduleReason;
 }
 
 export interface VocabularyReviewEvent {
   id: string;
   wordId: string;
+  unitId: string;
   skill: MemorySkill;
   reviewedAt: string;
   correct: boolean;
@@ -112,14 +162,23 @@ export interface VocabularyReviewEvent {
   hintLevel: HintLevel;
   usedHint?: boolean;
   answerRevealed?: boolean;
+  answerRevealedBeforeResponse?: boolean;
+  answerFeedbackShownAfterResponse?: boolean;
   responseMs: number;
   errorTypes: ReviewErrorType[];
   confusedWordIds?: string[];
   hintKinds?: HintKind[];
   predictedRecallBeforeReview: number;
-  fsrsRating: 1 | 2 | 3 | 4;
+  fsrsRating: 1 | 2 | 3 | 4 | null;
   reviewCountBefore: number;
-  unitId: string;
+  rawUserRating?: ReviewRating;
+  effectiveFsrsRating?: 1 | 2 | 3 | 4 | null;
+  ratingMappingReason?: import("./review-evidence.ts").RatingMappingReason;
+  attemptKind?: import("./review-evidence.ts").ReviewAttemptKind;
+  scheduledAt?: string;
+  sessionId?: string;
+  schedulerProfileId?: string;
+  selectionReason?: import("./meta-scheduler.ts").MetaScheduleReason;
 }
 
 export interface MemoryRepositoryData {

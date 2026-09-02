@@ -23,8 +23,12 @@ export function schedulePracticeRetry(
     return { items, retryItemIds: [...retryItemIds], scheduled: false };
   }
   const insertAt = Math.min(items.length, Math.max(0, Math.floor(currentIndex) + 3));
+  const retryItem: PracticePlanItem = {
+    ...item,
+    attemptKind: "retry",
+  };
   return {
-    items: [...items.slice(0, insertAt), item, ...items.slice(insertAt)],
+    items: [...items.slice(0, insertAt), retryItem, ...items.slice(insertAt)],
     retryItemIds: [...retryItemIds, item.itemId],
     scheduled: true,
   };

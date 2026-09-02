@@ -254,3 +254,146 @@ function createReviewLearningEvent(wordId, occurredAt) {
   });
   return reviewHistoryToLearningEvent(result.history, "phone");
 }
+
+test("replayLearningEvents rejects unknown schedulerProfileId", () => {
+  const event = createReviewLearningEvent("unknown-profile-word", "2026-08-02T00:00:00Z");
+  const badEvent = {
+    ...event,
+    payload: {
+      ...event.payload,
+      schedulerProfileId: "completely-unknown-profile-xyz",
+    },
+  };
+  assert.throws(
+    () => replayLearningEvents([badEvent]),
+    /不支援的 FSRS 排程設定檔/,
+  );
+});
+
+test("replayLearningEvents gracefully falls back when schedulerProfileId is missing", () => {
+  const event = createReviewLearningEvent("legacy-fallback-word", "2026-08-02T00:00:00Z");
+  const legacyEvent = {
+    ...event,
+    payload: {
+      ...event.payload,
+      schedulerProfileId: undefined,
+    },
+  };
+  const replayed = replayLearningEvents([legacyEvent]);
+  assert.equal(replayed.memories["legacy-fallback-word:jp_to_meaning"].reviewCount, 1);
+  assert.equal(replayed.history.length, 1);
+});
+
+test("replayLearningEvents does not mutate memory for telemetry-only events with null fsrsRating", () => {
+  const event = createReviewLearningEvent("telemetry-replay-word", "2026-08-02T00:00:00Z");
+  const telemetryEvent = {
+    ...event,
+    payload: {
+      ...event.payload,
+      fsrsRating: null,
+      effectiveFsrsRating: null,
+      fsrsUpdateEligible: false,
+      attemptKind: "scaffold",
+    },
+  };
+  const replayed = replayLearningEvents([telemetryEvent]);
+  assert.equal(replayed.memories["telemetry-replay-word:jp_to_meaning"].reviewCount, 0);
+  assert.equal(replayed.history.length, 0);
+  assert.equal(replayed.events.length, 1);
+  assert.equal(replayed.events[0].fsrsRating, null);
+});
+
+test("replayLearningEvents is idempotent across multiple devices and skills out of order", () => {
+  const e1 = {
+    version: 1,
+    id: "evt-1",
+    deviceId: "phone",
+    wordId: "w1",
+    unitId: "n4-1-1",
+    skill: "jp_to_meaning",
+    type: "review",
+    occurredAt: "2026-08-01T10:00:00Z",
+    payload: {
+      rawRating: "good",
+      reviewFormat: "jp-to-zh",
+      effectiveFsrsRating: 3,
+      ratingMappingReason: "independent_rating",
+      attemptKind: "scheduled",
+      schedulerProfileId: "fsrs6-tsfsrs-5.4.1-default-r90-short-v1",
+      responseTimeMs: 1200,
+      answerCorrect: true,
+      usedHint: false,
+      answerRevealed: false,
+      correct: true,
+      recalledWithoutHint: true,
+      answerAttempts: 1,
+    },
+  };
+  const e2 = {
+    version: 1,
+    id: "evt-2",
+    deviceId: "phone",
+    wordId: "w1",
+    unitId: "n4-1-1",
+    skill: "meaning_to_jp",
+    type: "review",
+    occurredAt: "2026-08-01T10:05:00Z",
+    payload: {
+      rawRating: "again",
+      reviewFormat: "zh-to-jp",
+      effectiveFsrsRating: null,
+      ratingMappingReason: "instruction_only",
+      attemptKind: "scaffold",
+      schedulerProfileId: "fsrs6-tsfsrs-5.4.1-default-r90-short-v1",
+      responseTimeMs: 1800,
+      answerCorrect: false,
+      usedHint: true,
+      answerRevealed: true,
+      correct: false,
+      recalledWithoutHint: false,
+      answerAttempts: 2,
+    },
+  };
+  const e3 = {
+    version: 1,
+    id: "evt-3",
+    deviceId: "tablet",
+    wordId: "w1",
+    unitId: "n4-1-1",
+    skill: "cloze",
+    type: "review",
+    occurredAt: "2026-08-02T12:00:00Z",
+    payload: {
+      rawRating: "good",
+      reviewFormat: "cloze",
+      effectiveFsrsRating: 3,
+      ratingMappingReason: "independent_rating",
+      attemptKind: "scheduled",
+      schedulerProfileId: "fsrs6-tsfsrs-5.4.1-default-r90-short-v1",
+      responseTimeMs: 2200,
+      answerCorrect: true,
+      usedHint: false,
+      answerRevealed: false,
+      correct: true,
+      recalledWithoutHint: true,
+      answerAttempts: 1,
+    },
+  };
+
+  // Replay in reverse order [e3, e2, e1]
+  const replayed1 = replayLearningEvents([e3, e2, e1]);
+  // Replay in direct order [e1, e2, e3]
+  const replayed2 = replayLearningEvents([e1, e2, e3]);
+
+  // Both results must be identical (deterministic sorting by occurredAt)
+  assert.equal(replayed1.history.length, 2);
+  assert.equal(replayed2.history.length, 2);
+  assert.equal(replayed1.events.length, 3);
+  assert.equal(replayed2.events.length, 3);
+
+  assert.equal(replayed1.memories["w1:jp_to_meaning"].reviewCount, 1);
+  assert.equal(replayed1.memories["w1:meaning_to_jp"].reviewCount, 0); // scaffold telemetry only
+  assert.equal(replayed1.memories["w1:cloze"].reviewCount, 1);
+
+  assert.deepEqual(replayed1.memories, replayed2.memories);
+});
