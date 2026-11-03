@@ -429,6 +429,10 @@
   margin: 20px 0;
 }
 
+.toolbarWithoutReview {
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+}
+
 .reviewActionGroup {
   min-width: 136px;
   display: grid;

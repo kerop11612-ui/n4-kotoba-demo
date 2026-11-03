@@ -20,12 +20,19 @@ export function MasterySummary({ stats }: MasterySummaryProps) {
         : "目前可跳過已熟悉單字";
   return (
     <div className={styles.masterySummary} aria-label="單元學習統計">
-      <div className={styles.masteryMain}>
-        <span>30 天預估保持率</span>
-        <strong>{retentionLabel}</strong>
-        <small>{retentionNote}・目前記憶率 {stats.currentRecallPercent}%</small>
-        <progress value={stats.masteryDataReady ? stats.masteryPercent : 0} max={100} aria-label="30 天預估保持率" />
-      </div>
+      {stats.masteryDataReady ? (
+        <div className={styles.masteryMain}>
+          <span>30 天預估保持率</span>
+          <strong>{retentionLabel}</strong>
+          <small>{retentionNote}・目前記憶率 {stats.currentRecallPercent}%</small>
+          <progress value={stats.masteryPercent} max={100} aria-label="30 天預估保持率" />
+        </div>
+      ) : (
+        <div className={styles.masteryMain}>
+          <span>30 天預估保持率：{retentionLabel}</span>
+          <small>{retentionNote}</small>
+        </div>
+      )}
       <span className={styles.masteryReviewed}>已複習 {stats.reviewedWords} / {stats.totalWords} 個</span>
       <section className={styles.practicePlan} aria-label="今天怎麼練">
         <div className={styles.practicePlanHeader}>

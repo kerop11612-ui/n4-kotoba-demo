@@ -330,7 +330,7 @@ export default function DemoPage() {
 
         {blurTranslations && !reviewing && (
           <p className={styles.translationHint}>
-            滑鼠移入單字或例句中文翻譯區即可查看答案。
+            點擊或滑鼠移入單字、例句中文翻譯區即可查看答案。
           </p>
         )}
 

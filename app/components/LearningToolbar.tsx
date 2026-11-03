@@ -75,9 +75,11 @@ export function LearningToolbar({
   onToggleExampleTranslation,
   onToggleBlurTranslations,
 }: LearningToolbarProps) {
+  // 推薦卡已提供同一個開始入口；只有續答或複習中才需要這顆按鈕。
+  const hideReviewAction = hasRecommendation && !reviewing && !reviewResume;
   return (
-    <div className={styles.toolbar}>
-      <div className={styles.reviewActionGroup}>
+    <div className={`${styles.toolbar} ${hideReviewAction ? styles.toolbarWithoutReview : ""}`}>
+      {!hideReviewAction && <div className={styles.reviewActionGroup}>
         <button
           className={`${styles.reviewStartButton} ${hasRecommendation ? styles.reviewStartSecondary : ""}`}
           type="button"
@@ -101,7 +103,7 @@ export function LearningToolbar({
             從第 1 題開始
           </button>
         )}
-      </div>
+      </div>}
 
       <label className={styles.searchField}>
         <span className={styles.searchLabel}>
