@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import styles from "./home.module.css";
 import { MemoryDataControls } from "./MemoryDataControls";
 import { AppNav } from "../components/AppNav";
@@ -47,7 +46,6 @@ export default function DemoHomePage() {
 
   const dashboard = overview?.dashboard ?? null;
   const chapterProgress = overview?.chapterProgress ?? {};
-  const router = useRouter();
 
   const { recommendation, generatedAt } = useLearningRecommendation({
     scope: "home",
@@ -67,7 +65,7 @@ export default function DemoHomePage() {
             {loading
               ? "正在載入單字庫…"
               : loadError || (dashboard
-                ? `${dashboard.dueToday} 個到期・${dashboard.needsPracticeWords} 個待加強・建議 ${dashboard.suggestedNewWords} 個新字`
+                ? `${dashboard.dueToday} 個到期・${dashboard.weakWords} 個弱項・建議 ${dashboard.suggestedNewWords} 個新字`
                 : `已整理 ${totalWords} 個 N4 單字，準備開始第一個單元。`)}
           </p>
         </div>
@@ -79,14 +77,13 @@ export default function DemoHomePage() {
           recommendation={recommendation}
           sourceLabel="本機規則"
           generatedAt={generatedAt}
-          onStart={() => router.push("/practice")}
         />
       )}
 
       <section className={styles.stats} aria-label="單字庫統計">
         {[
           ["今日到期", dashboard ? String(dashboard.dueToday) : "—", "先處理最該複習的字"],
-          ["待加強", dashboard ? String(dashboard.needsPracticeWords) : "—", dashboard ? `其中 ${dashboard.weakWords} 個弱項` : "包含新字與學習中"],
+          ["待加強", dashboard ? String(dashboard.needsPracticeWords) : "—", dashboard ? `含 ${dashboard.newWords} 個新字・${dashboard.weakWords} 個弱項` : "包含新字與學習中"],
           ["新字", dashboard ? String(dashboard.newWords) : "—", dashboard ? `今日建議 ${dashboard.suggestedNewWords} 個` : "尚未建立學習紀錄"],
           ["手動已學會", dashboard ? String(dashboard.manualMasteredWords) : "—", "可隨時取消並重新加入練習"],
           ["已學單字", dashboard ? String(dashboard.reviewedWords) : "—", `共 ${totalWords || "—"} 個 N4 單字`],

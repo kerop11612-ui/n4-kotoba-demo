@@ -10,6 +10,7 @@
 - 已瀏覽器實測 `/practice`：提示、答錯重試（5→6 題）、暫停／恢復、自適應題型皆正常。
 - 修正兩個實測發現的 bug：`/practice` 複習區缺少 `--accent` 等 CSS 變數（主按鈕看不見）；`onMessage` 每次渲染都是新函式，造成 `Maximum update depth exceeded` 無限更新。
 - 驗證：`check:fast` 通過（型別、lint、122 項測試）。
+- UI/UX 修正：`globals.css` 開頭 BOM 使 `:root` 全域變數失效（手機左右邊距 0、字型退回襯線），已移除；首頁摘要改顯示「弱項」以對齊 `/practice`，「待加強」卡片註明含新字；首頁移除重複的第二顆主按鈕；新增全域 `prefers-reduced-motion`。已於 390px 實測首頁、單字庫、練習頁無水平捲動。
 
 ## 下一步
 
@@ -18,3 +19,4 @@
 3. 補 IndexedDB 端到端測試，再評估分開保存記憶卡與複習事件。
 4. 逐頁拆分 `app/demo.module.css`（2307 行），每次一頁並以 390px 驗證。
 5. 評估 `ai-learning-analysis.ts`（698 行）是否仍有使用者，無用則移除。
+6. 設計建議（未實作）：首頁 6 張統計卡精簡為 3 張；`/practice` 主按鈕在 390px 落在首屏底部，可上移或做底部固定 CTA；統一「待加強」定義（首頁含新字、練習頁僅弱項）。

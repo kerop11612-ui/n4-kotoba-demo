@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --font-sans: "Noto Sans TC", "Noto Sans JP", "Yu Gothic UI", "Microsoft JhengHei", system-ui, sans-serif;
   --font-jp: "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", sans-serif;
   --font-display: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
@@ -22,3 +22,12 @@ body {
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
