@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import styles from "../demo.module.css";
+import toolbarStyles from "./LearningToolbar.module.css";
 import Link from "next/link";
 import { AudioIcon } from "./vocabulary";
 import type { QueueMode } from "../../src/spaced-repetition/review-queue";
@@ -77,6 +79,14 @@ export function LearningToolbar({
 }: LearningToolbarProps) {
   // 推薦卡已提供同一個開始入口；只有續答或複習中才需要這顆按鈕。
   const hideReviewAction = hasRecommendation && !reviewing && !reviewResume;
+  const settingsToggleRef = useRef<HTMLButtonElement>(null);
+  const displayToggles = [
+    { label: "中文意思", pressed: showMeaning, onToggle: onToggleMeaning },
+    { label: "日文讀音", pressed: showReading, onToggle: onToggleReading },
+    { label: "日文例句", pressed: showExample, onToggle: onToggleExample },
+    { label: "例句中文", pressed: showExampleTranslation, onToggle: onToggleExampleTranslation },
+    { label: "模糊翻譯", pressed: blurTranslations, onToggle: onToggleBlurTranslations },
+  ];
   return (
     <div className={`${styles.toolbar} ${hideReviewAction ? styles.toolbarWithoutReview : ""}`}>
       {!hideReviewAction && <div className={styles.reviewActionGroup}>
@@ -135,58 +145,84 @@ export function LearningToolbar({
         {isPlaylist ? "停止播放" : "播放單字"}
       </button>
       <button
+        ref={settingsToggleRef}
         className={styles.displaySettingsToggle}
         type="button"
         aria-expanded={showDisplaySettings}
         aria-controls="display-settings-panel"
         onClick={onToggleDisplaySettings}
       >
-        更多設定 {showDisplaySettings ? "⌃" : "⌄"}
+        更多設定
+        <svg
+          className={`${toolbarStyles.toggleIcon} ${showDisplaySettings ? toolbarStyles.toggleIconOpen : ""}`}
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
       {showDisplaySettings && (
-        <div className={styles.displaySettingsPanel} id="display-settings-panel" role="group" aria-label="學習設定與工具">
-          <Link className={styles.exportButton} href={exportHref} target="_blank" rel="noreferrer">
-            列印練習單
-          </Link>
-          <label className={styles.reviewModeField}>
-            <span>佇列</span>
-            <select value={reviewMode} onChange={(event) => onReviewModeChange(event.target.value as QueueMode)}>
-              <option value="focused">專注最多 10 題</option>
-              <option value="unit">整單元</option>
-              <option value="today">今日到期</option>
-              <option value="priority">優先複習</option>
-              <option value="random">隨機</option>
-            </select>
-          </label>
-          <label className={styles.reviewModeField}>
-            <span>形式</span>
-            <select
-              value={reviewFormat}
-              disabled={reviewing}
-              aria-label="複習形式"
-              onChange={(event) => onReviewFormatChange(event.target.value as ReviewFormat)}
-            >
-              <option value="jp-to-zh">日文回想中文</option>
-              <option value="zh-to-jp">中文回想日文</option>
-              <option value="cloze">例句填空</option>
-            </select>
-          </label>
-          <div className={styles.displaySettingsGroup} aria-label="單字顯示設定">
-            <button className={showMeaning ? styles.viewToggleActive : ""} type="button" aria-pressed={showMeaning} onClick={onToggleMeaning}>
-              中文意思 {showMeaning ? "顯示" : "隱藏"}
-            </button>
-            <button className={showReading ? styles.viewToggleActive : ""} type="button" aria-pressed={showReading} onClick={onToggleReading}>
-              日文讀音 {showReading ? "顯示" : "隱藏"}
-            </button>
-            <button className={showExample ? styles.viewToggleActive : ""} type="button" aria-pressed={showExample} onClick={onToggleExample}>
-              日文例句 {showExample ? "顯示" : "隱藏"}
-            </button>
-            <button className={showExampleTranslation ? styles.viewToggleActive : ""} type="button" aria-pressed={showExampleTranslation} onClick={onToggleExampleTranslation}>
-              例句中文 {showExampleTranslation ? "顯示" : "隱藏"}
-            </button>
-            <button className={blurTranslations ? styles.viewToggleActive : ""} type="button" aria-pressed={blurTranslations} onClick={onToggleBlurTranslations}>
-              中文翻譯模糊 {blurTranslations ? "開" : "關"}
-            </button>
+        <div
+          className={toolbarStyles.panel}
+          id="display-settings-panel"
+          role="group"
+          aria-label="學習設定與工具"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            onToggleDisplaySettings();
+            settingsToggleRef.current?.focus();
+          }}
+        >
+          <div className={toolbarStyles.group} role="group" aria-labelledby="settings-group-0">
+            <p className={toolbarStyles.groupTitle} id="settings-group-0">複習方式</p>
+            <div className={toolbarStyles.fields}>
+              <label className={`${styles.reviewModeField} ${toolbarStyles.field}`}>
+                <span>題目範圍</span>
+                <select value={reviewMode} onChange={(event) => onReviewModeChange(event.target.value as QueueMode)}>
+                  <option value="focused">專注最多 10 題</option>
+                  <option value="unit">整單元</option>
+                  <option value="today">今日到期</option>
+                  <option value="priority">優先複習</option>
+                  <option value="random">隨機</option>
+                </select>
+              </label>
+              <label className={`${styles.reviewModeField} ${toolbarStyles.field}`}>
+                <span>題型</span>
+                <select
+                  value={reviewFormat}
+                  disabled={reviewing}
+                  aria-label="複習形式"
+                  onChange={(event) => onReviewFormatChange(event.target.value as ReviewFormat)}
+                >
+                  <option value="jp-to-zh">日文回想中文</option>
+                  <option value="zh-to-jp">中文回想日文</option>
+                  <option value="cloze">例句填空</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className={toolbarStyles.group} role="group" aria-labelledby="settings-group-1">
+            <p className={toolbarStyles.groupTitle} id="settings-group-1">卡片顯示</p>
+            <div className={toolbarStyles.switches} aria-label="單字顯示設定">
+              {displayToggles.map((toggle) => (
+                <button
+                  className={toolbarStyles.switch}
+                  type="button"
+                  aria-pressed={toggle.pressed}
+                  onClick={toggle.onToggle}
+                  key={toggle.label}
+                >
+                  <span>{toggle.label}</span>
+                  <span className={toolbarStyles.track} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={toolbarStyles.group} role="group" aria-labelledby="settings-group-2">
+            <p className={toolbarStyles.groupTitle} id="settings-group-2">工具</p>
+            <Link className={toolbarStyles.toolLink} href={exportHref} target="_blank" rel="noreferrer">
+              列印練習單（新分頁）
+            </Link>
           </div>
         </div>
       )}
