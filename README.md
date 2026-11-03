@@ -4,7 +4,7 @@
 >
 > A mobile-first JLPT N4 vocabulary learning site with audio, FSRS spaced repetition, adaptive practice, and an optional AI study coach.
 
-[🚀 開啟線上 Demo](https://a7b1c9e2.n4-kotoba-demo.pages.dev/?chapter=1&section=1) 
+[🚀 開啟線上 Demo](https://n4-kotoba-demo.pages.dev/?chapter=1&section=1) 
 
 <img width="2217" height="1111" alt="Snipaste_2026-08-25_11-31-06" src="https://github.com/user-attachments/assets/7da6f6ac-e063-493d-bf87-83b2693cc90b" />
 
@@ -22,7 +22,7 @@ Kotoba N4 是一個以日常學習為目標的 JLPT N4 單字學習網站。專�
 
 ## 線上使用
 
-直接開啟 [Kotoba N4 線上 Demo](https://a7b1c9e2.n4-kotoba-demo.pages.dev/?chapter=1&section=1)，即可從第 1 章第 1 節開始瀏覽單字。
+直接開啟 [Kotoba N4 線上 Demo](https://n4-kotoba-demo.pages.dev/?chapter=1&section=1)，即可從第 1 章第 1 節開始瀏覽單字。
 
 網站目前是 learning-focused Demo。學習紀錄預設保存在目前瀏覽器；如果清除瀏覽器資料、使用無痕模式或更換裝置，尚未同步的紀錄可能會遺失。
 
