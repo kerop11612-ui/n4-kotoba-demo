@@ -4,13 +4,15 @@
 
 - `/practice` 已接上 adaptive per-card format、重試佇列、提示階梯、推薦優先與可展開自訂練習。
 - 保存資料匯入會拒絕空白、格式錯誤、部分損毀與全無效備份，並保留既有資料與匯入前備份。
-- 首頁、單字庫與收藏頁已完成手機優先 UI 優化；390px 無水平捲動，主要操作目標至少 44px。
-- 已移除使用者可見 AI 助教聊天入口、FAB、Drawer、hook、聊天橋接端點與聊天測試；保留本機推薦、FSRS、收藏、備份與非 UI 學習分析。
-- 完成專注列印版：純白黑灰 A4、雙欄分頁、方向／題數／排版選擇、獨立答案讀音、頁數摘要與精簡答案頁。
-- 單字庫寬螢幕改為每列 3 張單字卡；1320px 以下維持 2 張，700px 以下維持 1 張。
-- 驗證通過：`npm run lint:app`、`npm run check:types`、`npm test`（144 passed）、`npm run build`；1600／1200／390px 實測分別為 3／2／1 欄且無水平捲動。
+- 首頁、單字庫、收藏頁與列印頁已完成手機優先 UI；單字庫寬螢幕 3／2／1 欄。
+- 已清除 AI 殘留：`src/ai/`、`scripts/ai-bridge/`、`useAiCoach`、`useCodexUsage`、`dev:ai-bridge` 與對應測試；保留非 UI 的 `ai-learning-analysis.ts`。
+- `npm test` 改為掃描 `tests/*.test.mjs`；`AGENTS.md` 新增程式碼地圖與維護規則。
+- 驗證：`check:fast` 通過（型別、lint、122 項測試）。
 
 ## 下一步
 
-1. 使用瀏覽器實測 `/practice` 的提示、答錯、延後重試、暫停／恢復與完成摘要流程。
-2. 補 IndexedDB 端到端測試，再評估將記憶卡與複習事件分開保存。
+1. 瀏覽器實測 `/practice` 的提示、答錯、延後重試、暫停／恢復與完成摘要。
+2. 確認音訊（約 75MB）與詞庫 JSON（約 733KB）按需載入。
+3. 補 IndexedDB 端到端測試，再評估分開保存記憶卡與複習事件。
+4. 逐頁拆分 `app/demo.module.css`（2307 行），每次一頁並以 390px 驗證。
+5. 評估 `ai-learning-analysis.ts`（698 行）是否仍有使用者，無用則移除。

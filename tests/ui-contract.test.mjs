@@ -32,15 +32,7 @@ test("small navigation and empty-state controls have touch-sized targets", async
   assert.doesNotMatch(favorites, /<Link className=\{styles\.unitMapLink\} href="\/">開始學習<\/Link>/);
 });
 
-test("bridge and package no longer expose the chat endpoint", async () => {
-  const [server, runtime, client, pkg] = await Promise.all([
-    source("scripts/ai-bridge/server.mjs"),
-    source("scripts/ai-bridge/runtime.mjs"),
-    source("src/ai/local-ai-client.ts"),
-    source("package.json"),
-  ]);
-  assert.doesNotMatch(server, /v1\/chat|chatAdapter|readChatRequest/);
-  assert.doesNotMatch(runtime, /chat-adapter|chatAdapter/);
-  assert.doesNotMatch(client, /chatJapanese|AiChat/);
-  assert.doesNotMatch(pkg, /ai-chat\.test|dev:ai-chat/);
+test("package no longer exposes AI bridge or chat scripts", async () => {
+  const pkg = await source("package.json");
+  assert.doesNotMatch(pkg, /ai-bridge|ai-chat|dev:ai/);
 });

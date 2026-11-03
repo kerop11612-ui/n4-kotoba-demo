@@ -115,7 +115,6 @@ Kotoba N4 是一個以日常學習為目標的 JLPT N4 單字學習網站。專�
 | `src/spaced-repetition/` | FSRS、複習佇列、提示、練習計畫與摘要 |
 | `src/storage/` | 瀏覽器本機學習紀錄、收藏與資料遷移 |
 | `src/sync/` | 選配的學習事件同步與 Supabase 儲存 |
-| `src/ai/`、`scripts/ai-bridge/` | 選配的 AI 分析、對話與 Codex bridge |
 | `public/` | N4 詞庫 JSON 與單字／例句音訊 |
 | `tests/` | FSRS、詞庫、練習、同步與版面相關測試 |
 
@@ -174,16 +173,6 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME
 ```
 
 未設定 Supabase 時，仍可使用本機學習紀錄；這是預設且最簡單的使用方式。
-
-### AI 學習助教
-
-AI 助教是選配功能。若本機已具備 Codex 登入環境，可另開終端機啟動 AI bridge：
-
-```bash
-npm run dev:ai-bridge
-```
-
-AI bridge 未連線時，單字瀏覽、音訊、收藏、FSRS 與個人化練習仍可正常使用。
 
 ## 驗證與品質檢查
 
