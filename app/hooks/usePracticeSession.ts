@@ -17,6 +17,9 @@ import { useLearningData } from "./useLearningData";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useReviewSession } from "./useReviewSession";
 
+// Stable reference: an inline arrow changes every render and retriggers playOne-based effects.
+const ignoreMessage = () => undefined;
+
 function getPracticeStorage(): Storage | null {
   try {
     return window.localStorage;
@@ -154,7 +157,7 @@ export function usePracticeSession() {
     };
   }, [format, practiceItems, practiceMode, queueRefs]);
 
-  const audio = useAudioPlayer({ words: queueWords, visibleWords: queueWords, onMessage: () => undefined });
+  const audio = useAudioPlayer({ words: queueWords, visibleWords: queueWords, onMessage: ignoreMessage });
   const review = useReviewSession({
     words: queueWords,
     visibleWords: queueWords,
@@ -168,7 +171,7 @@ export function usePracticeSession() {
     setReviewEvents,
     playOne: audio.playOne,
     stopAudio: audio.stopAudio,
-    onMessage: () => undefined,
+    onMessage: ignoreMessage,
     practiceScope,
   });
 

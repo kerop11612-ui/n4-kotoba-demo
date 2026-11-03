@@ -124,7 +124,18 @@
   text-align: center;
 }
 .emptyState strong { color: var(--ink, #17212b); font-size: 20px; }
-.reviewWorkspace { width: min(100%, 980px); margin: 28px auto 0; }
+.reviewWorkspace {
+  --surface: #fffdf8;
+  --surface-raised: #f7f1e8;
+  --line: #d7d0c5;
+  --line-soft: #e6dfd5;
+  --ink: #17212b;
+  --muted: #655e55;
+  --accent: #9f4d1b;
+  --accent-soft: #f2e4d7;
+  width: min(100%, 980px);
+  margin: 28px auto 0;
+}
 
 @media (max-width: 700px) {
   .page { padding: 20px var(--space-page, 20px) 44px; }
